@@ -1,0 +1,25 @@
+import uvicorn
+from fastapi import FastAPI
+from nicegui import ui
+
+from cs2market import __version__, api
+from cs2market.settings import get_settings
+from cs2market.ui import register_pages
+
+
+def create_api() -> FastAPI:
+    app = FastAPI(title="cs2market", version=__version__)
+    app.include_router(api.router)
+    return app
+
+
+def create_app() -> FastAPI:
+    app = create_api()
+    register_pages()
+    ui.run_with(app, title="cs2market", storage_secret=get_settings().ui_storage_secret)
+    return app
+
+
+def run() -> None:
+    settings = get_settings()
+    uvicorn.run(create_app(), host=settings.host, port=settings.port)
