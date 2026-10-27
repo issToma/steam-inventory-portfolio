@@ -5,7 +5,7 @@ import contextlib
 import json
 import logging
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
 import aiohttp
@@ -19,6 +19,9 @@ from tenacity import (
 log = logging.getLogger(__name__)
 
 STEAM_COMMUNITY = "https://steamcommunity.com"
+
+# A sequence of pairs allows repeated keys such as category_730_Quality[].
+type Params = Mapping[str, str] | Sequence[tuple[str, str]]
 
 
 class SteamError(Exception):
@@ -86,7 +89,7 @@ class SteamClient:
     async def get_json(
         self,
         path: str,
-        params: Mapping[str, str] | None = None,
+        params: Params | None = None,
         headers: Mapping[str, str] | None = None,
         *,
         priority: bool = False,
@@ -129,7 +132,7 @@ class SteamClient:
     async def _get_once(
         self,
         path: str,
-        params: Mapping[str, str] | None,
+        params: Params | None,
         headers: Mapping[str, str] | None,
         max_wait: float | None,
     ) -> Any:

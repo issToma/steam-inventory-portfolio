@@ -11,3 +11,10 @@ def test_health() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "version": __version__}
+
+
+def test_search_rejects_unknown_filters() -> None:
+    client = TestClient(create_api())
+
+    assert client.get("/api/search", params={"q": "x", "kind": "spaceship"}).status_code == 422
+    assert client.get("/api/search", params={"q": "x", "exterior": "new"}).status_code == 422

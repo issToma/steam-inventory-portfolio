@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 
 from cs2market import __version__
 from cs2market.core.http import SteamBusyError, SteamError
+from cs2market.core.steam import Exterior, ItemKind, Quality
 from cs2market.runtime import runtime
 
 # A search waits for the shared Steam client: at most one background request plus the
@@ -22,11 +23,16 @@ async def health() -> dict[str, str]:
 
 
 @router.get("/search")
-async def search(q: str) -> list[dict[str, Any]]:
+async def search(
+    q: str = "",
+    kind: ItemKind | None = None,
+    quality: Quality | None = None,
+    exterior: Exterior | None = None,
+) -> list[dict[str, Any]]:
     """Search the Steam market (at most 10 results), ahead of background requests."""
     try:
         results = await asyncio.wait_for(
-            runtime.market.search(q, priority=True, max_wait=SEARCH_MAX_WAIT),
+            runtime.market.search(q, quality=quality, priority=True, max_wait=SEARCH_MAX_WAIT),
             timeout=SEARCH_TIMEOUT,
         )
     except SteamBusyError as exc:

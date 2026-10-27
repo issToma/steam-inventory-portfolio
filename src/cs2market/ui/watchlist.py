@@ -1,7 +1,8 @@
 import asyncio
 import time
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from nicegui import ui
 
@@ -9,6 +10,7 @@ from cs2market.analysis import MissingRateError, compute_metrics, to_frame
 from cs2market.api import SEARCH_MAX_WAIT, SEARCH_TIMEOUT
 from cs2market.core.http import SteamBusyError, SteamError
 from cs2market.core.parsers import SearchResult, SteamFormatError, market_hash_name_from_input
+from cs2market.core.steam import SKIN_KINDS, Exterior, ItemKind, Quality
 from cs2market.db import repo
 from cs2market.runtime import runtime
 from cs2market.ui.common import fmt_pct, fmt_usd, header
@@ -19,16 +21,67 @@ OVERVIEW_WINDOW = timedelta(days=35)
 SEARCH_CACHE_TTL = 600.0
 ICON_URL = "https://community.akamai.steamstatic.com/economy/image/{}/62fx62f"
 
-_search_cache: dict[str, tuple[float, list[SearchResult]]] = {}
+ANY = "any"
+KIND_OPTIONS: dict[str, str] = {
+    ANY: "Any type",
+    "rifle": "Rifle",
+    "sniper_rifle": "Sniper rifle",
+    "pistol": "Pistol",
+    "smg": "SMG",
+    "shotgun": "Shotgun",
+    "machinegun": "Machine gun",
+    "knife": "Knife",
+    "gloves": "Gloves",
+    "sticker": "Sticker",
+    "case": "Case",
+    "agent": "Agent",
+    "graffiti": "Graffiti",
+    "patch": "Patch",
+    "charm": "Charm",
+    "music_kit": "Music kit",
+    "key": "Key",
+}
+QUALITY_OPTIONS: dict[str, str] = {
+    ANY: "All",
+    "normal": "Classic",
+    "stattrak": "StatTrak™",
+    "souvenir": "Souvenir",
+}
+EXTERIOR_OPTIONS: dict[str, str] = {
+    ANY: "Any wear",
+    "fn": "FN",
+    "mw": "MW",
+    "ft": "FT",
+    "ww": "WW",
+    "bs": "BS",
+}
 
 
-async def _search(query: str) -> list[SearchResult]:
-    key = query.casefold()
+@dataclass(frozen=True)
+class SearchQuery:
+    text: str
+    kind: ItemKind | None = None
+    quality: Quality | None = None
+    exterior: Exterior | None = None
+
+
+_search_cache: dict[SearchQuery, tuple[float, list[SearchResult]]] = {}
+
+
+async def _search(query: SearchQuery) -> list[SearchResult]:
+    key = replace(query, text=query.text.casefold())
     cached = _search_cache.get(key)
     if cached is not None and time.monotonic() - cached[0] < SEARCH_CACHE_TTL:
         return cached[1]
     results = await asyncio.wait_for(
-        runtime.market.search(query, priority=True, max_wait=SEARCH_MAX_WAIT),
+        runtime.market.search(
+            query.text,
+            kind=query.kind,
+            quality=query.quality,
+            exterior=query.exterior,
+            priority=True,
+            max_wait=SEARCH_MAX_WAIT,
+        ),
         timeout=SEARCH_TIMEOUT,
     )
     _search_cache[key] = (time.monotonic(), results)
@@ -91,6 +144,11 @@ def register() -> None:
                     placeholder="redline, breakout case, karambit doppler…",
                 ).classes("grow")
                 search_button = ui.button("Search", icon="search")
+            with ui.row().classes("items-center gap-4"):
+                kind_select = ui.select(KIND_OPTIONS, value=ANY).props("dense outlined")
+                quality_toggle = ui.toggle(QUALITY_OPTIONS, value=ANY).props("dense no-caps")
+                exterior_toggle = ui.toggle(EXTERIOR_OPTIONS, value=ANY).props("dense no-caps")
+                exterior_toggle.set_visibility(False)
             status = ui.label().classes("text-caption text-grey-7")
             results_box = ui.column().classes("w-full gap-1")
 
@@ -140,8 +198,9 @@ def register() -> None:
                 except ValueError as exc:
                     status.text = str(exc)
                     return
-                if len(query) < 2:
-                    status.text = "Type at least two characters."
+                kind = None if kind_select.value == ANY else cast(ItemKind, kind_select.value)
+                if len(query) < 2 and kind is None:
+                    status.text = "Type at least two characters or pick a type."
                     return
                 search_button.disable()
                 status.text = (
@@ -149,7 +208,21 @@ def register() -> None:
                 )
                 results_box.clear()
                 try:
-                    results = await _search(query)
+                    # A pasted URL names one exact item; filters could only hide it.
+                    if (query_input.value or "").strip().startswith("http"):
+                        request = SearchQuery(query)
+                    else:
+                        request = SearchQuery(
+                            query,
+                            kind=kind,
+                            quality=None
+                            if quality_toggle.value == ANY
+                            else cast(Quality, quality_toggle.value),
+                            exterior=None
+                            if exterior_toggle.value == ANY
+                            else cast(Exterior, exterior_toggle.value),
+                        )
+                    results = await _search(request)
                 except SteamBusyError as exc:
                     status.text = (
                         f"Steam is rate limiting us; try again in about {exc.wait / 60:.0f} min."
@@ -161,7 +234,7 @@ def register() -> None:
                 finally:
                     search_button.enable()
                 if not results:
-                    status.text = f"Nothing found for “{query}”. Check the spelling."
+                    status.text = "Nothing found. Check the spelling or loosen the filters."
                     return
                 async with runtime.sessions() as session:
                     watched = {i.market_hash_name for i in await repo.watchlist_items(session)}
@@ -170,6 +243,26 @@ def register() -> None:
                 )
                 show_results(results, watched)
 
+            async def requery() -> None:
+                if (query_input.value or "").strip() or kind_select.value != ANY:
+                    await search()
+
+            async def kind_changed() -> None:
+                # Wear and StatTrak/Souvenir exist only for skins; reset hidden filters so
+                # they cannot silently exclude stickers, cases and the like.
+                kind = kind_select.value
+                skin = kind in SKIN_KINDS
+                quality_toggle.set_visibility(kind == ANY or skin)
+                exterior_toggle.set_visibility(skin)
+                if not skin:
+                    exterior_toggle.set_value(ANY)
+                    if kind != ANY:
+                        quality_toggle.set_value(ANY)
+                await requery()
+
             search_button.on_click(search)
+            kind_select.on_value_change(kind_changed)
+            quality_toggle.on_value_change(requery)
+            exterior_toggle.on_value_change(requery)
             query_input.on("keydown.enter", search)
             ui.timer(60, refresh)
