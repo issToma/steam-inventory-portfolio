@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     request_interval_seconds: Annotated[float, Field(ge=MIN_REQUEST_INTERVAL_SECONDS)] = 20.0
     user_agent: str = "cs2market/0.1.0 (self-hosted CS2 market price tracker)"
 
+    collector_enabled: bool = True
+    history_refresh_minutes: Annotated[int, Field(ge=30)] = 60
+    fx_refresh_hours: Annotated[int, Field(ge=1)] = 24
+    # A liquid, fairly expensive item, so that cent rounding barely affects the derived rate.
+    fx_reference_item: str = "AK-47 | Redline (Field-Tested)"
+
     ui_storage_secret: str = "change-me"
 
 
