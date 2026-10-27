@@ -1,5 +1,20 @@
-from sqlalchemy import MetaData
-from sqlalchemy.orm import DeclarativeBase
+from datetime import date, datetime
+from decimal import Decimal
+
+from sqlalchemy import (
+    BigInteger,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    MetaData,
+    Numeric,
+    SmallInteger,
+    Text,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 # Explicit constraint names keep Alembic migrations deterministic.
 NAMING_CONVENTION = {
@@ -13,3 +28,79 @@ NAMING_CONVENTION = {
 
 class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
+
+
+class Item(Base):
+    """A market item, identified by its market_hash_name."""
+
+    __tablename__ = "items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    market_hash_name: Mapped[str] = mapped_column(Text, unique=True)
+    bucket_group_id: Mapped[str | None] = mapped_column(Text)
+    item_type: Mapped[str | None] = mapped_column(Text)
+    rarity: Mapped[str | None] = mapped_column(Text)
+    collection: Mapped[str | None] = mapped_column(Text)
+    exterior: Mapped[str | None] = mapped_column(Text)
+    quality: Mapped[str | None] = mapped_column(Text)
+    classid: Mapped[str | None] = mapped_column(Text)
+    icon_url: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PricePoint(Base):
+    """One point of Steam's price history: daily for old data, hourly for the last month.
+
+    Prices are stored as received, in the currency Steam chose for our IP (`currency` is
+    Steam's ECurrencyCode, e.g. 1 = USD, 3 = EUR); conversion to USD happens on read.
+    """
+
+    __tablename__ = "price_history"
+
+    item_id: Mapped[int] = mapped_column(
+        ForeignKey("items.id", ondelete="CASCADE"), primary_key=True
+    )
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    price: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    volume: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[int] = mapped_column(SmallInteger)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class FxRate(Base):
+    """Steam's own exchange rate to USD for a currency on a given day."""
+
+    __tablename__ = "fx_rates"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    currency: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    usd_per_unit: Mapped[Decimal] = mapped_column(Numeric(18, 8))
+
+
+class WatchlistEntry(Base):
+    __tablename__ = "watchlist"
+
+    item_id: Mapped[int] = mapped_column(
+        ForeignKey("items.id", ondelete="CASCADE"), primary_key=True
+    )
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class FetchJob(Base):
+    """A persistent collector task, so a restart resumes where it stopped."""
+
+    __tablename__ = "fetch_jobs"
+    __table_args__ = (UniqueConstraint("kind", "target"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    kind: Mapped[str] = mapped_column(Text)
+    target: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, server_default="0")
+    run_after: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    last_error: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
