@@ -1,0 +1,13 @@
+{
+ "data": {
+  "ecurrency": 3,
+  "prices": [
+   {"time": 1392940800, "price_median": 36.97976303100586, "purchases": 198},
+   {"time": 1393027200, "price_median": 31.33043670654297, "purchases": 225},
+   {"time": 1393113600, "price_median": 29.605871200561523, "purchases": 183},
+   {"time": 1793005200, "price_median": 28.386966705322266, "purchases": 2},
+   {"time": 1793008800, "price_median": 28.2450008392334, "purchases": 2},
+   {"time": 1793016000, "price_median": 28.618120193481445, "purchases": 4}
+  ]
+ }
+}

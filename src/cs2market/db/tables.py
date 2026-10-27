@@ -53,6 +53,9 @@ class PricePoint(Base):
 
     Prices are stored as received, in the currency Steam chose for our IP (`currency` is
     Steam's ECurrencyCode, e.g. 1 = USD, 3 = EUR); conversion to USD happens on read.
+
+    `resolution` is part of the key: once a day leaves Steam's hourly window, Steam returns
+    a daily point at 00:00 that must not overwrite the hourly point we stored for that time.
     """
 
     __tablename__ = "price_history"
@@ -60,6 +63,7 @@ class PricePoint(Base):
     item_id: Mapped[int] = mapped_column(
         ForeignKey("items.id", ondelete="CASCADE"), primary_key=True
     )
+    resolution: Mapped[str] = mapped_column(Text, primary_key=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
     price: Mapped[Decimal] = mapped_column(Numeric(14, 4))
     volume: Mapped[int] = mapped_column(Integer)

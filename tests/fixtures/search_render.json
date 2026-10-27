@@ -1,0 +1,30 @@
+{
+ "success": true,
+ "start": 0,
+ "pagesize": 10,
+ "total_count": 1,
+ "results": [
+  {
+   "name": "Operation Breakout Weapon Case",
+   "hash_name": "Operation Breakout Weapon Case",
+   "sell_listings": 17740,
+   "sell_price": 1006,
+   "sell_price_text": "$10.06",
+   "app_name": "Counter-Strike 2",
+   "asset_description": {
+    "appid": 730,
+    "classid": "520025252",
+    "icon_url": "i0CoZ81Ui0m-9KwlBY1L_18myuGuq1wfhWSaZgMttyVfPaERSR0Wqmu7LAocGJKz2lu_XsnXwtmkJjSU91dh8bj35VTqVBP4io_fqWxdv_b8O_w5eKXBWWXHw-smtrBvTHDmwEsl4jvWn4z_I3qWZwV1X5ZwW6dU5RcRF1o0",
+    "tradable": 1,
+    "name": "Operation Breakout Weapon Case",
+    "type": "Base Grade Container",
+    "market_name": "Operation Breakout Weapon Case",
+    "market_hash_name": "Operation Breakout Weapon Case",
+    "commodity": 1,
+    "market_bucket_group_name": "Operation Breakout Weapon Case",
+    "market_bucket_group_id": "G18B21F3004"
+   },
+   "sale_price_text": "$9.63"
+  }
+ ]
+}

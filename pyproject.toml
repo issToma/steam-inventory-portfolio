@@ -9,7 +9,6 @@ requires-python = ">=3.14"
 dependencies = [
     "aiohttp>=3.14.5",
     "alembic>=1.20.1",
-    "apscheduler>=3.11.3",
     "asyncpg>=0.32.0",
     "fastapi>=0.162.0",
     "nicegui>=3.18.0",
@@ -33,6 +32,8 @@ target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP", "SIM", "ASYNC", "RUF", "N", "PTH"]
+# Cyrillic letters appear in real Steam price strings such as "2582,16 руб.".
+allowed-confusables = ["р", "у", "б"]
 
 [tool.mypy]
 python_version = "3.14"
