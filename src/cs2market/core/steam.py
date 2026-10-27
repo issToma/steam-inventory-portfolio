@@ -46,10 +46,14 @@ class SteamMarket:
         )
         return parse_price_overview(payload)
 
-    async def search(self, query: str) -> list[SearchResult]:
+    async def search(
+        self, query: str, *, priority: bool = False, max_wait: float | None = None
+    ) -> list[SearchResult]:
         """Search the catalog. Steam returns at most 10 results per request."""
         payload = await self._client.get_json(
             "/market/search/render/",
             params={"appid": str(self._appid), "norender": "1", "query": query},
+            priority=priority,
+            max_wait=max_wait,
         )
         return parse_search_results(payload)

@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Mapping
 from types import TracebackType
 from typing import Any, Self, cast
@@ -5,15 +6,23 @@ from typing import Any, Self, cast
 import aiohttp
 import pytest
 
-from cs2market.core.http import SteamClient, SteamError, SteamRateLimitedError
+from cs2market.core.http import (
+    SteamBusyError,
+    SteamClient,
+    SteamError,
+    SteamRateLimitedError,
+)
 
 
 class FakeResponse:
-    def __init__(self, status: int, body: bytes) -> None:
+    def __init__(self, status: int, body: bytes, gate: asyncio.Event | None = None) -> None:
         self.status = status
         self._body = body
+        self._gate = gate
 
     async def read(self) -> bytes:
+        if self._gate is not None:
+            await self._gate.wait()
         return self._body
 
     async def __aenter__(self) -> Self:
@@ -122,3 +131,45 @@ async def test_client_errors_are_not_retried() -> None:
     with pytest.raises(SteamError, match="HTTP 400"):
         await client.get_json("/a")
     assert len(session.calls) == 1
+
+
+async def test_priority_request_goes_before_waiting_background_requests() -> None:
+    clock = FakeClock()
+    gate = asyncio.Event()
+    session = FakeSession(
+        [
+            FakeResponse(200, b"0", gate),
+            FakeResponse(200, b"1"),
+            FakeResponse(200, b"2"),
+        ]
+    )
+    client = make_client(session, clock)
+    order: list[str] = []
+
+    async def fetch(path: str, priority: bool) -> None:
+        await client.get_json(path, priority=priority)
+        order.append(path)
+
+    running = asyncio.create_task(fetch("/running", False))
+    await asyncio.sleep(0)
+    background = asyncio.create_task(fetch("/background", False))
+    await asyncio.sleep(0)
+    user = asyncio.create_task(fetch("/user", True))
+    await asyncio.sleep(0)
+    gate.set()
+    await asyncio.gather(running, background, user)
+
+    assert order == ["/running", "/user", "/background"]
+
+
+async def test_max_wait_fails_fast_during_cooldown() -> None:
+    clock = FakeClock()
+    session = FakeSession([FakeResponse(429, b"")])
+    client = make_client(session, clock)
+    with pytest.raises(SteamRateLimitedError):
+        await client.get_json("/a")
+
+    with pytest.raises(SteamBusyError):
+        await client.get_json("/a", priority=True, max_wait=60)
+    assert len(session.calls) == 1
+    assert clock.sleeps == []

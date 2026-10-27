@@ -1,16 +1,39 @@
+import asyncio
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from nicegui import ui
 
 from cs2market.analysis import MissingRateError, compute_metrics, to_frame
-from cs2market.core.parsers import market_hash_name_from_input
+from cs2market.api import SEARCH_MAX_WAIT, SEARCH_TIMEOUT
+from cs2market.core.http import SteamBusyError, SteamError
+from cs2market.core.parsers import SearchResult, SteamFormatError, market_hash_name_from_input
 from cs2market.db import repo
 from cs2market.runtime import runtime
 from cs2market.ui.common import fmt_pct, fmt_usd, header
 
 # Enough history for the 30-day metrics on the overview.
 OVERVIEW_WINDOW = timedelta(days=35)
+
+SEARCH_CACHE_TTL = 600.0
+ICON_URL = "https://community.akamai.steamstatic.com/economy/image/{}/62fx62f"
+
+_search_cache: dict[str, tuple[float, list[SearchResult]]] = {}
+
+
+async def _search(query: str) -> list[SearchResult]:
+    key = query.casefold()
+    cached = _search_cache.get(key)
+    if cached is not None and time.monotonic() - cached[0] < SEARCH_CACHE_TTL:
+        return cached[1]
+    results = await asyncio.wait_for(
+        runtime.market.search(query, priority=True, max_wait=SEARCH_MAX_WAIT),
+        timeout=SEARCH_TIMEOUT,
+    )
+    _search_cache[key] = (time.monotonic(), results)
+    return results
+
 
 COLUMNS: list[dict[str, Any]] = [
     {"name": "name", "label": "Item", "field": "name", "align": "left", "sortable": True},
@@ -63,14 +86,13 @@ def register() -> None:
         with ui.column().classes("w-full max-w-5xl mx-auto p-4 gap-4"):
             ui.label("Watchlist").classes("text-h5")
             with ui.row().classes("w-full items-center"):
-                name_input = ui.input(
-                    "Item name or market URL",
-                    placeholder="AK-47 | Redline (Field-Tested)",
+                query_input = ui.input(
+                    "Search the market or paste an item URL",
+                    placeholder="redline, breakout case, karambit doppler…",
                 ).classes("grow")
-                add_button = ui.button("Add")
-            ui.label(
-                "New items are fetched by the background collector, usually within a few minutes."
-            ).classes("text-caption text-grey-7")
+                search_button = ui.button("Search", icon="search")
+            status = ui.label().classes("text-caption text-grey-7")
+            results_box = ui.column().classes("w-full gap-1")
 
             table = ui.table(columns=COLUMNS, rows=await _rows(), row_key="id").classes("w-full")
             table.on("rowClick", lambda e: ui.navigate.to(f"/item/{e.args[1]['id']}"))
@@ -79,21 +101,75 @@ def register() -> None:
                 table.rows = await _rows()
                 table.update()
 
-            async def add() -> None:
-                try:
-                    name = market_hash_name_from_input(name_input.value or "")
-                except ValueError as exc:
-                    ui.notify(str(exc), type="warning")
-                    return
-                if not name:
-                    return
+            async def add(result: SearchResult, button: ui.button) -> None:
                 async with runtime.sessions() as session:
-                    await repo.add_to_watchlist(session, name)
+                    await repo.add_to_watchlist(session, result.market_hash_name, result)
                     await session.commit()
-                name_input.value = ""
-                ui.notify(f"Added {name}")
+                button.disable()
+                button.text = "Added"
+                ui.notify(f"Added {result.market_hash_name}; history arrives in about a minute")
                 await refresh()
 
-            add_button.on_click(add)
-            name_input.on("keydown.enter", add)
+            def show_results(results: list[SearchResult], watched: set[str]) -> None:
+                results_box.clear()
+                with results_box:
+                    for result in results:
+                        with (
+                            ui.card().classes("w-full py-1 px-2"),
+                            ui.row().classes("w-full items-center no-wrap gap-3"),
+                        ):
+                            if result.icon_url:
+                                ui.image(ICON_URL.format(result.icon_url)).classes("w-12 h-9")
+                            with ui.column().classes("grow gap-0"):
+                                ui.label(result.market_hash_name)
+                                ui.label(result.item_type).classes("text-caption text-grey-7")
+                            ui.label(
+                                f"{fmt_usd(result.sell_price_usd_cents / 100)} · "
+                                f"{result.sell_listings:,} listed"
+                            ).classes("text-grey-8")
+                            button = ui.button("Add").props("flat dense")
+                            if result.market_hash_name in watched:
+                                button.text = "In watchlist"
+                                button.disable()
+                            else:
+                                button.on_click(lambda r=result, b=button: add(r, b))
+
+            async def search() -> None:
+                try:
+                    query = market_hash_name_from_input(query_input.value or "")
+                except ValueError as exc:
+                    status.text = str(exc)
+                    return
+                if len(query) < 2:
+                    status.text = "Type at least two characters."
+                    return
+                search_button.disable()
+                status.text = (
+                    "Searching… (requests to Steam are spaced out, this can take up to a minute)"
+                )
+                results_box.clear()
+                try:
+                    results = await _search(query)
+                except SteamBusyError as exc:
+                    status.text = (
+                        f"Steam is rate limiting us; try again in about {exc.wait / 60:.0f} min."
+                    )
+                    return
+                except (SteamError, SteamFormatError, TimeoutError) as exc:
+                    status.text = f"Search failed: {exc}"
+                    return
+                finally:
+                    search_button.enable()
+                if not results:
+                    status.text = f"Nothing found for “{query}”. Check the spelling."
+                    return
+                async with runtime.sessions() as session:
+                    watched = {i.market_hash_name for i in await repo.watchlist_items(session)}
+                status.text = (
+                    f"Found {len(results)} (Steam shows at most 10; refine the query if needed)."
+                )
+                show_results(results, watched)
+
+            search_button.on_click(search)
+            query_input.on("keydown.enter", search)
             ui.timer(60, refresh)

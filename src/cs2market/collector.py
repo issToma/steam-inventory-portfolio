@@ -105,6 +105,10 @@ class Collector:
         results = await self._market.search(job.target)
         match = next((r for r in results if r.market_hash_name == job.target), None)
         if match is None:
+            # No point fetching history for a name the market does not know.
+            async with self._sessions() as session:
+                await repo.delete_job(session, repo.JOB_HISTORY, job.target)
+                await session.commit()
             raise JobFailedError("item not found on the market; check the exact name")
         async with self._sessions() as session:
             item = await repo.get_item_by_name(session, job.target)
@@ -112,6 +116,8 @@ class Collector:
                 repo.apply_search_result(
                     item, match, parse_item_traits(job.target, match.item_type)
                 )
+                if await repo.is_watched(session, item.id):
+                    await repo.ensure_job(session, repo.JOB_HISTORY, job.target)
             await session.commit()
         return None
 

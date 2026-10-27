@@ -20,12 +20,20 @@ class Runtime:
         self._sessions: SessionMaker | None = None
         self._http: aiohttp.ClientSession | None = None
         self._collector: asyncio.Task[None] | None = None
+        self._market: SteamMarket | None = None
 
     @property
     def sessions(self) -> SessionMaker:
         if self._sessions is None:
             raise RuntimeError("runtime is not started")
         return self._sessions
+
+    @property
+    def market(self) -> SteamMarket:
+        """Shared Steam access; UI callers should pass priority=True and a max_wait."""
+        if self._market is None:
+            raise RuntimeError("runtime is not started")
+        return self._market
 
     async def start(self) -> None:
         settings = get_settings()
@@ -36,8 +44,9 @@ class Runtime:
             timeout=aiohttp.ClientTimeout(total=60),
         )
         client = SteamClient(self._http, interval=settings.request_interval_seconds)
+        self._market = SteamMarket(client)
         if settings.collector_enabled:
-            collector = Collector(self._sessions, SteamMarket(client), settings)
+            collector = Collector(self._sessions, self._market, settings)
             self._collector = asyncio.create_task(collector.run_forever())
         else:
             log.info("collector disabled by settings")

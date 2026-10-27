@@ -10,7 +10,13 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cs2market.core.parsers import ItemTraits, PriceHistory, Resolution, SearchResult
+from cs2market.core.parsers import (
+    ItemTraits,
+    PriceHistory,
+    Resolution,
+    SearchResult,
+    parse_item_traits,
+)
 from cs2market.db.tables import FetchJob, FxRate, Item, PricePoint, WatchlistEntry
 
 JOB_RESOLVE = "resolve"
@@ -39,13 +45,20 @@ async def get_item(session: AsyncSession, item_id: int) -> Item | None:
     return await session.get(Item, item_id)
 
 
-async def add_to_watchlist(session: AsyncSession, market_hash_name: str) -> Item:
-    """Add an item and queue its jobs. Nothing here talks to Steam: the collector does."""
+async def add_to_watchlist(
+    session: AsyncSession, market_hash_name: str, found: SearchResult | None = None
+) -> Item:
+    """Add an item and queue its jobs. Nothing here talks to Steam: the collector does.
+
+    `found` is the search result the user picked; with it the item needs no resolve job.
+    """
     await session.execute(
         insert(Item).values(market_hash_name=market_hash_name).on_conflict_do_nothing()
     )
     item = await get_item_by_name(session, market_hash_name)
     assert item is not None
+    if found is not None:
+        apply_search_result(item, found, parse_item_traits(market_hash_name, found.item_type))
     await session.execute(insert(WatchlistEntry).values(item_id=item.id).on_conflict_do_nothing())
     if item.item_type is None:
         await ensure_job(session, JOB_RESOLVE, market_hash_name)
@@ -213,9 +226,20 @@ async def fail_job(
     )
 
 
+async def delete_job(session: AsyncSession, kind: str, target: str) -> None:
+    await session.execute(delete(FetchJob).where(FetchJob.kind == kind, FetchJob.target == target))
+
+
 async def jobs_for(session: AsyncSession, targets: list[str]) -> dict[str, FetchJob]:
-    """History jobs by item name, so the UI can show each item's collection status."""
+    """Per item name, the job that best explains its status: a failing one if any."""
     result = await session.scalars(
-        select(FetchJob).where(FetchJob.kind == JOB_HISTORY, FetchJob.target.in_(targets))
+        select(FetchJob).where(
+            FetchJob.kind.in_([JOB_RESOLVE, JOB_HISTORY]), FetchJob.target.in_(targets)
+        )
     )
-    return {job.target: job for job in result}
+    jobs: dict[str, FetchJob] = {}
+    for job in result:
+        current = jobs.get(job.target)
+        if current is None or (job.status == "error" and current.status != "error"):
+            jobs[job.target] = job
+    return jobs
