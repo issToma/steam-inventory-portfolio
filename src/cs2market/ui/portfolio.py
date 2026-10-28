@@ -146,18 +146,19 @@ def register() -> None:
                     ui.space()
                     period_toggle = ui.toggle(period_options(), value="30D").props("dense")
                 # Side by side on wide screens; the period group wraps below on narrow ones.
+                # Each group takes half of the row and its cards share that half equally.
                 with ui.row().classes("w-full gap-x-10 gap-y-4 items-stretch"):
-                    with ui.column().classes("gap-1"):
+                    with ui.column().classes("gap-1 flex-1 min-w-[26rem]"):
                         ui.label(tr("Now")).classes("text-overline text-muted")
-                        totals = ui.row().classes("gap-3 items-stretch no-wrap")
+                        totals = ui.row().classes("w-full gap-3 items-stretch no-wrap")
                         with totals:
                             for _ in range(3):
-                                ui.skeleton(width="10rem", height="5.5rem")
-                    with ui.column().classes("gap-1"):
+                                ui.skeleton(height="6.75rem").classes("flex-1")
+                    with ui.column().classes("gap-1 flex-1 min-w-[26rem]"):
                         with ui.row().classes("items-baseline gap-2"):
                             period_caption = ui.label().classes("text-overline text-primary")
                             period_since = ui.label().classes("text-caption text-muted")
-                        stats = ui.row().classes("gap-3 items-stretch no-wrap")
+                        stats = ui.row().classes("w-full gap-3 items-stretch no-wrap")
                 chart_skeleton = ui.skeleton(height="18rem").classes("w-full")
                 chart = ui.echart({}, theme=echart_theme()).classes("w-full h-72")
                 chart.set_visibility(False)
@@ -344,7 +345,9 @@ def register() -> None:
 
 def _stat(label: str, value: str, color: str = "", hint: str = "", *, period: bool = False) -> None:
     # One height for every card, with or without a hint line, so rows line up.
-    with ui.card().classes("min-w-40 min-h-[6.75rem]" + (" period-card" if period else "")):
+    with ui.card().classes(
+        "flex-1 basis-0 min-w-36 min-h-[6.75rem]" + (" period-card" if period else "")
+    ):
         ui.label(label).classes("text-caption text-muted")
         ui.label(value).classes(f"text-h6 {color}")
         if hint:
