@@ -1,8 +1,9 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, cast
 
 from cs2market.collector import Collector
+from cs2market.core.http import RATE_LIMITED_MESSAGE
 from cs2market.core.parsers import (
     GroupVariant,
     HistoryPoint,
@@ -234,3 +235,20 @@ async def test_switched_off_game_is_not_imported(sessions: SessionMaker) -> None
     async with sessions() as session:
         held = [i.appid for _, i in await repo.active_holdings(session)]
     assert held == [730]
+
+
+async def test_resuming_runs_rate_limited_jobs_now(sessions: SessionMaker) -> None:
+    async with sessions() as session:
+        await repo.ensure_job(session, repo.JOB_FX, "5")
+        await session.commit()
+        job = await repo.get_job(session, repo.JOB_FX, "5")
+        assert job is not None
+        later = datetime.now(UTC) + timedelta(minutes=10)
+        await repo.fail_job(session, job, RATE_LIMITED_MESSAGE, later, count_attempt=False)
+        await session.commit()
+        assert await repo.due_job_count(session) == 0
+
+        await repo.retry_rate_limited_jobs(session)
+        await session.commit()
+
+        assert await repo.due_job_count(session) == 1

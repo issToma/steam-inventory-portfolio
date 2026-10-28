@@ -89,7 +89,9 @@ RU: dict[str, str] = {
     "Light": "Светлая",
     "Search items…": "Поиск предметов…",
     "Collector is off": "Сборщик выключен",
-    "Steam paused us · {minutes} min": "Steam поставил паузу · {minutes} мин",
+    "Steam limited requests · waiting {minutes} min": (
+        "Steam ограничил запросы · ждём {minutes} мин"
+    ),
     "Prices are up to date": "Цены актуальны",
     "Connect Steam": "Подключить Steam",
     # Settings
@@ -194,7 +196,6 @@ RU: dict[str, str] = {
     "Profit / loss": "Прибыль / убыток",
     "after fees, positions with a purchase price": "после комиссии, по позициям с ценой покупки",
     "Waiting for prices": "Ждут цен",
-    "fetched shortly": "скоро загрузятся",
     "Add items that are not in your inventory": "Добавить предметы, которых нет в инвентаре",
     "For example, storage unit contents: Steam does not show them in the inventory.": (
         "Например, содержимое хранилищ: Steam не показывает его в инвентаре."
@@ -413,5 +414,16 @@ RU: dict[str, str] = {
     "Loading prices · {priced} of {total} · ~{eta} left": (
         "Загружаем цены · {priced} из {total} · осталось ~{eta}"
     ),
-    "all prices in about {span}": "все цены примерно через {span}",
+    "Resume now": "Продолжить сейчас",
+    "Steam limits requests per IP address. If you switched to another IP (say, another VPN "
+    "server), continue right away instead of waiting.": (
+        "Steam ограничивает запросы по IP-адресу. Если вы сменили IP (например, другой сервер "
+        "VPN), можно продолжить сразу, не дожидаясь."
+    ),
+    "Resumed. If Steam still answers 429, the next pause is longer.": (
+        "Продолжаем. Если Steam снова ответит 429, следующая пауза будет дольше."
+    ),
+    "{seconds} s now · adaptive, {fastest} to {slowest} s": (
+        "сейчас {seconds} с · адаптивно, от {fastest} до {slowest} с"
+    ),
 }

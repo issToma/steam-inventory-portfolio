@@ -1,4 +1,3 @@
-from datetime import timedelta
 from typing import Any
 
 import pandas as pd
@@ -24,7 +23,6 @@ from cs2market.ui.common import (
     icon_url,
     pct_color,
     rarity_color,
-    span,
     sparkline_points,
     time_ago,
     time_until,
@@ -237,18 +235,7 @@ def register() -> None:
                         )
                     _stat(tr("Positions"), str(len(portfolio.positions)))
                     if portfolio.unpriced:
-                        status = await runtime.collector_status()
-                        _stat(
-                            tr("Waiting for prices"),
-                            str(portfolio.unpriced),
-                            "",
-                            tr(
-                                "all prices in about {span}",
-                                span=span(timedelta(seconds=status.eta_seconds)),
-                            )
-                            if status.enabled and status.eta_seconds
-                            else tr("fetched shortly"),
-                        )
+                        _stat(tr("Waiting for prices"), str(portfolio.unpriced))
                 _fit_cards(now_group, len(totals.default_slot.children))
                 table.columns = columns(
                     with_pnl=any(p.pnl is not None for p in portfolio.positions)

@@ -28,6 +28,8 @@ class CollectorStatus:
     prices: repo.PriceProgress
     # Rough time to work through the due jobs: about one request each.
     eta_seconds: float
+    pace_seconds: float  # between requests right now
+    adaptive: bool
 
     @property
     def loading_prices(self) -> bool:
@@ -72,7 +74,13 @@ class Runtime:
             headers={"User-Agent": settings.user_agent, "Accept-Language": "en-US,en;q=0.8"},
             timeout=aiohttp.ClientTimeout(total=60),
         )
-        client = SteamClient(self._http, interval=settings.request_interval_seconds)
+        client = SteamClient(
+            self._http,
+            interval=settings.request_interval_seconds,
+            min_interval=settings.adaptive_min_interval_seconds
+            if settings.adaptive_pacing
+            else None,
+        )
         self._client = client
         self._market = SteamMarket(client)
         self._telegram = TelegramBot(self._http)
@@ -91,13 +99,24 @@ class Runtime:
             prices = await repo.price_progress(session)
         until = self._client.cooling_down_until if self._client else None
         paused = until - time.monotonic() if until is not None else None
+        pace = self._client.pace if self._client else self._interval
         return CollectorStatus(
             enabled=self._collector_enabled,
             queued=queued,
             paused_seconds=paused if paused and paused > 0 else None,
             prices=prices,
-            eta_seconds=queued * self._interval,
+            eta_seconds=queued * pace,
+            pace_seconds=pace,
+            adaptive=self._client.adaptive if self._client else False,
         )
+
+    async def resume_steam(self) -> None:
+        """End Steam's cool-down now, e.g. after the user switched to another IP address."""
+        if self._client is not None:
+            self._client.resume()
+        async with self.sessions() as session:
+            await repo.retry_rate_limited_jobs(session)
+            await session.commit()
 
     async def stop(self) -> None:
         if self._collector is not None:

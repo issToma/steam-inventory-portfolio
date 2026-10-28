@@ -179,3 +179,72 @@ async def test_max_wait_fails_fast_during_cooldown() -> None:
         await client.get_json("/a", priority=True, max_wait=60)
     assert len(session.calls) == 1
     assert clock.sleeps == []
+
+
+def adaptive_client(session: FakeSession, clock: FakeClock) -> SteamClient:
+    return SteamClient(
+        cast(aiohttp.ClientSession, session),
+        interval=20,
+        min_interval=8,
+        cooldown=300,
+        clock=clock,
+        sleep=clock.sleep,
+    )
+
+
+async def test_adaptive_pace_speeds_up_and_backs_off_after_429() -> None:
+    clock = FakeClock()
+    ok = SteamClient.SPEEDUP_AFTER * 5
+    responses: list[FakeResponse | Exception] = [
+        *[FakeResponse(200, b"{}") for _ in range(ok)],
+        FakeResponse(429, b""),
+        *[FakeResponse(200, b"{}") for _ in range(ok)],
+    ]
+    session = FakeSession(responses)
+    client = adaptive_client(session, clock)
+
+    for _ in range(ok):
+        await client.get_json("/a")
+    assert client.pace == 15
+
+    with pytest.raises(SteamRateLimitedError):
+        await client.get_json("/a")
+    assert client.pace == 18  # 15 s drew the 429: settle 3 s above it, for good
+
+    for _ in range(ok):
+        await client.get_json("/a")
+    assert client.pace == 18
+
+
+async def test_fixed_pace_without_min_interval() -> None:
+    clock = FakeClock()
+    responses: list[FakeResponse | Exception] = [FakeResponse(200, b"{}") for _ in range(30)]
+    session = FakeSession(responses)
+    client = make_client(session, clock)
+
+    for _ in range(30):
+        await client.get_json("/a")
+
+    assert client.pace == 20 and not client.adaptive
+
+
+async def test_resume_ends_the_cooldown_of_a_waiting_request() -> None:
+    session = FakeSession([FakeResponse(429, b""), FakeResponse(200, b"{}")])
+    started = asyncio.Event()
+
+    async def slow_sleep(seconds: float) -> None:
+        started.set()
+        await asyncio.sleep(3600)
+
+    client = SteamClient(
+        cast(aiohttp.ClientSession, session), interval=20, cooldown=300, sleep=slow_sleep
+    )
+    with pytest.raises(SteamRateLimitedError):
+        await client.get_json("/a")
+    waiting = asyncio.create_task(client.get_json("/a"))
+    await started.wait()
+
+    client.resume()
+
+    assert await asyncio.wait_for(waiting, 1) == {}
+    assert client.cooling_down_until is None

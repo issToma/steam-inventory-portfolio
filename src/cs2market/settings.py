@@ -7,6 +7,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Steam started answering 429 after ~12 requests in ~4 minutes (2026-10-26 probe).
 # This floor is deliberately not configurable below this value.
 MIN_REQUEST_INTERVAL_SECONDS = 15.0
+# The adaptive pace (opt-in) may go faster, since it backs off on its own after a 429.
+MIN_ADAPTIVE_INTERVAL_SECONDS = 5.0
 
 
 class Settings(BaseSettings):
@@ -18,6 +20,10 @@ class Settings(BaseSettings):
     port: int = 8080
 
     request_interval_seconds: Annotated[float, Field(ge=MIN_REQUEST_INTERVAL_SECONDS)] = 20.0
+    # Opt-in: start at request_interval_seconds and speed up while Steam answers normally,
+    # down to adaptive_min_interval_seconds; a 429 slows it down again.
+    adaptive_pacing: bool = False
+    adaptive_min_interval_seconds: Annotated[float, Field(ge=MIN_ADAPTIVE_INTERVAL_SECONDS)] = 8.0
     user_agent: str = "cs2market/0.1.0 (self-hosted CS2 market price tracker)"
 
     collector_enabled: bool = True

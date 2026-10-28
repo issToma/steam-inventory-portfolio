@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cs2market import scheduling
 from cs2market.core.games import CS2_APPID
+from cs2market.core.http import RATE_LIMITED_MESSAGE
 from cs2market.core.parsers import (
     InventoryItem,
     ItemTraits,
@@ -790,6 +791,15 @@ async def price_progress(session: AsyncSession) -> PriceProgress:
         )
     ).one()
     return PriceProgress(priced=priced, total=total)
+
+
+async def retry_rate_limited_jobs(session: AsyncSession) -> None:
+    """Run now the jobs that are waiting out a 429 (after the user resumed the client)."""
+    await session.execute(
+        update(FetchJob)
+        .where(FetchJob.last_error == RATE_LIMITED_MESSAGE, FetchJob.run_after > func.now())
+        .values(run_after=func.now())
+    )
 
 
 async def due_job_count(session: AsyncSession) -> int:

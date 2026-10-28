@@ -20,6 +20,8 @@ log = logging.getLogger(__name__)
 
 STEAM_COMMUNITY = "https://steamcommunity.com"
 
+RATE_LIMITED_MESSAGE = "Steam rate limit hit (HTTP 429)"
+
 # A sequence of pairs allows repeated keys such as category_730_Quality[].
 type Params = Mapping[str, str] | Sequence[tuple[str, str]]
 
@@ -32,7 +34,7 @@ class SteamRateLimitedError(SteamError):
     """Steam answered 429; the client is cooling down until `retry_at` (monotonic time)."""
 
     def __init__(self, retry_at: float) -> None:
-        super().__init__("Steam rate limit hit (HTTP 429)")
+        super().__init__(RATE_LIMITED_MESSAGE)
         self.retry_at = retry_at
 
 
@@ -64,13 +66,25 @@ class SteamClient:
 
     After a 429 the client stops all requests for a cool-down that doubles with every
     consecutive 429 (from `cooldown` up to `max_cooldown`) and resets after a success.
+    resume() ends a cool-down early, say after the user switched to another IP address.
+
+    With `min_interval` below `interval` the pace is adaptive: after every SPEEDUP_AFTER
+    successful requests in a row the pause shrinks by a second, down to `min_interval`.
+    A 429 marks the pace that was too fast: the pause goes back a few seconds above it and
+    never shrinks to it again.
     """
+
+    SPEEDUP_AFTER = 10
+    SPEEDUP_STEP = 1.0
+    # How far above the pace that drew a 429 the adaptive pace settles.
+    BACKOFF_MARGIN = 3.0
 
     def __init__(
         self,
         session: aiohttp.ClientSession,
         *,
         interval: float,
+        min_interval: float | None = None,
         cooldown: float = 300.0,
         max_cooldown: float = 3600.0,
         base_url: str = STEAM_COMMUNITY,
@@ -79,6 +93,9 @@ class SteamClient:
     ) -> None:
         self._session = session
         self._interval = interval
+        self._min_interval = min(min_interval, interval) if min_interval else interval
+        self._pace = interval
+        self._successes = 0
         self._cooldown = cooldown
         self._max_cooldown = max_cooldown
         self._base_url = base_url
@@ -89,10 +106,27 @@ class SteamClient:
         self._priority_waiting = 0
         self._next_allowed = 0.0
         self._consecutive_429 = 0
+        self._wake = asyncio.Event()
 
     @property
     def cooling_down_until(self) -> float | None:
         return self._next_allowed if self._consecutive_429 else None
+
+    @property
+    def pace(self) -> float:
+        """Seconds between requests right now."""
+        return self._pace
+
+    @property
+    def adaptive(self) -> bool:
+        return self._min_interval < self._interval
+
+    def resume(self) -> None:
+        """End a 429 cool-down now; a 429 right after it pauses for longer, as usual."""
+        if self._consecutive_429:
+            self._next_allowed = self._clock()
+            self._wake.set()
+            log.info("cool-down ended by the user")
 
     async def get_json(
         self,
@@ -180,8 +214,8 @@ class SteamClient:
         delay = self._next_allowed - self._clock()
         if max_wait is not None and delay > max_wait:
             raise SteamBusyError(delay)
-        if delay > 0:
-            await self._sleep(delay)
+        while (delay := self._next_allowed - self._clock()) > 0:
+            await self._wait(delay)
         try:
             timeout = (
                 self._session.timeout
@@ -194,7 +228,7 @@ class SteamClient:
                 status = response.status
                 body = await response.read()
         except (aiohttp.ClientError, TimeoutError) as exc:
-            self._next_allowed = self._clock() + self._interval
+            self._next_allowed = self._clock() + self._pace
             raise _TransientError(f"{path}: {exc!r}") from exc
 
         now = self._clock()
@@ -203,12 +237,44 @@ class SteamClient:
             pause = min(self._cooldown * 2 ** (self._consecutive_429 - 1), self._max_cooldown)
             self._next_allowed = now + pause
             log.warning("Steam returned 429; pausing all requests for %.0f s", pause)
+            self._slow_down()
             raise SteamRateLimitedError(self._next_allowed)
 
         self._consecutive_429 = 0
-        self._next_allowed = now + self._interval
+        self._speed_up()
+        self._next_allowed = now + self._pace
         if status >= 500:
             raise _TransientError(f"{path}: HTTP {status}")
         if status != 200:
             raise SteamHttpError(path, status)
         return body
+
+    async def _wait(self, delay: float) -> None:
+        """Sleep for `delay`, or less if resume() is called meanwhile."""
+        self._wake.clear()
+        sleeper = asyncio.ensure_future(self._sleep(delay))
+        waker = asyncio.ensure_future(self._wake.wait())
+        try:
+            await asyncio.wait({sleeper, waker}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            sleeper.cancel()
+            waker.cancel()
+
+    def _speed_up(self) -> None:
+        if not self.adaptive:
+            return
+        self._successes += 1
+        if self._successes < self.SPEEDUP_AFTER or self._pace <= self._min_interval:
+            return
+        self._successes = 0
+        self._pace = max(self._pace - self.SPEEDUP_STEP, self._min_interval)
+        log.info("pace: %.0f s between requests", self._pace)
+
+    def _slow_down(self) -> None:
+        if not self.adaptive:
+            return
+        self._successes = 0
+        too_fast = self._pace
+        self._min_interval = min(too_fast + self.BACKOFF_MARGIN, self._interval)
+        self._pace = self._min_interval
+        log.info("pace: %.0f s between requests (%.0f s drew a 429)", self._pace, too_fast)

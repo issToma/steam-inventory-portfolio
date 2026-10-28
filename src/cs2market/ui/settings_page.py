@@ -59,7 +59,14 @@ def register() -> None:
                     (tr("Tasks waiting now"), str(status.queued)),
                     (
                         tr("Pause between requests to Steam"),
-                        tr("{seconds} s", seconds=f"{settings.request_interval_seconds:g}"),
+                        tr(
+                            "{seconds} s now · adaptive, {fastest} to {slowest} s",
+                            seconds=f"{status.pace_seconds:g}",
+                            fastest=f"{settings.adaptive_min_interval_seconds:g}",
+                            slowest=f"{settings.request_interval_seconds:g}",
+                        )
+                        if status.adaptive
+                        else tr("{seconds} s", seconds=f"{settings.request_interval_seconds:g}"),
                     ),
                     (
                         tr("Important items refresh every"),

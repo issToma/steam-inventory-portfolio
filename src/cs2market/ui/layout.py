@@ -248,6 +248,22 @@ def _collector_indicator() -> None:
         with dot:
             hint = ui.tooltip()
         label = ui.label().classes("text-caption text-muted gt-sm")
+        resume = ui.button(tr("Resume now"), on_click=lambda: resume_now()).props(
+            "flat dense no-caps size=sm color=amber"
+        )
+        with resume:
+            ui.tooltip(
+                tr(
+                    "Steam limits requests per IP address. If you switched to another IP "
+                    "(say, another VPN server), continue right away instead of waiting."
+                )
+            )
+        resume.set_visibility(False)
+
+    async def resume_now() -> None:
+        await runtime.resume_steam()
+        ui.notify(tr("Resumed. If Steam still answers 429, the next pause is longer."))
+        await update()
 
     async def update() -> None:
         status = await runtime.collector_status()
@@ -255,7 +271,10 @@ def _collector_indicator() -> None:
             color, text = "grey", tr("Collector is off")
         elif status.paused_seconds is not None:
             minutes = max(round(status.paused_seconds / 60), 1)
-            color, text = "amber", tr("Steam paused us · {minutes} min", minutes=minutes)
+            color, text = (
+                "amber",
+                tr("Steam limited requests · waiting {minutes} min", minutes=minutes),
+            )
         elif status.loading_prices:
             color, text = (
                 "light-blue",
@@ -274,6 +293,7 @@ def _collector_indicator() -> None:
         else:
             color, text = "green", ""
         dot.props(f"color={color}")
+        resume.set_visibility(status.paused_seconds is not None)
         label.text = text
         hint.text = text or tr("Prices are up to date")
 
