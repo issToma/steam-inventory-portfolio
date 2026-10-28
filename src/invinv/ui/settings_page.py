@@ -82,7 +82,7 @@ def register() -> None:
                 ui.label(
                     tr(
                         "These values come from the INVINV_* environment variables; "
-                        "see .env.example. The pause cannot be set below 15 seconds."
+                        "see .env.example. The pause cannot be set below 8 seconds."
                     )
                 ).classes("text-caption text-muted")
 

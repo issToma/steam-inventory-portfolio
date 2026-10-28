@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Steam started answering 429 after ~12 requests in ~4 minutes (2026-10-26 probe).
 # This floor is deliberately not configurable below this value.
-MIN_REQUEST_INTERVAL_SECONDS = 15.0
+MIN_REQUEST_INTERVAL_SECONDS = 8.0
 # The adaptive pace (opt-in) may go faster, since it backs off on its own after a 429.
 MIN_ADAPTIVE_INTERVAL_SECONDS = 1.0
 

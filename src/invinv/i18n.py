@@ -112,9 +112,9 @@ RU: dict[str, str] = {
     "Cheaper items refresh every": "Дешёвые предметы обновляются каждые",
     "6 to 24 hours": "6–24 часа",
     "Inventory import every": "Импорт инвентаря каждые",
-    "These values come from the INVINV_* environment variables; see .env.example. The pause cannot be set below 15 seconds.": (
+    "These values come from the INVINV_* environment variables; see .env.example. The pause cannot be set below 8 seconds.": (
         "Эти значения задаются переменными окружения INVINV_* (см. .env.example). "
-        "Паузу нельзя сделать меньше 15 секунд."
+        "Паузу нельзя сделать меньше 8 секунд."
     ),
     # Shared
     "All": "Всё",
