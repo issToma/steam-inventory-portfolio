@@ -129,19 +129,25 @@ def register() -> None:
 
             banner = ui.column().classes("w-full")
 
-            # --- Current totals ---------------------------------------------------------
-            totals = ui.row().classes("gap-3")
-            with totals:
-                for _ in range(3):
-                    ui.skeleton(width="10rem", height="4.5rem")
-
-            # --- One period for the statistics, the chart and the movers -----------------
+            # --- Totals now and for the period chosen in the card's header -------------
+            # The period cards carry the period in their caption and the toggle's colour, so
+            # it is clear that they, the chart and the movers follow the switch.
             with ui.card().classes("w-full"):
                 with ui.row().classes("w-full items-center"):
                     ui.label(tr("Portfolio value")).classes("text-subtitle1")
                     ui.space()
                     period_toggle = ui.toggle(period_options(), value="30D").props("dense")
-                stats = ui.row().classes("gap-3")
+                with ui.row().classes("w-full gap-6 items-stretch"):
+                    with ui.column().classes("gap-1"):
+                        ui.label(tr("Now")).classes("text-overline text-muted")
+                        totals = ui.row().classes("gap-3")
+                        with totals:
+                            for _ in range(3):
+                                ui.skeleton(width="10rem", height="4.5rem")
+                    ui.separator().props("vertical").classes("gt-sm")
+                    with ui.column().classes("gap-1"):
+                        period_caption = ui.label().classes("text-overline text-primary")
+                        stats = ui.row().classes("gap-3")
                 chart_skeleton = ui.skeleton(height="18rem").classes("w-full")
                 chart = ui.echart({}, theme=echart_theme()).classes("w-full h-72")
                 chart.set_visibility(False)
@@ -228,6 +234,11 @@ def register() -> None:
                 chart.options.clear()
                 chart.options.update(_value_chart(portfolio.value_history, period))
                 chart.update()
+                period_caption.text = (
+                    tr("For all time")
+                    if period == "All"
+                    else tr("For the period · {period}", period=period)
+                )
                 _period_stats(stats, period_stats(portfolio.value_history, PERIODS[period]))
                 _movers(movers, portfolio, period)
 
@@ -312,8 +323,8 @@ def register() -> None:
             ui.timer(60, refresh)
 
 
-def _stat(label: str, value: str, color: str = "", hint: str = "") -> None:
-    with ui.card().classes("min-w-40"):
+def _stat(label: str, value: str, color: str = "", hint: str = "", *, period: bool = False) -> None:
+    with ui.card().classes("min-w-40" + (" period-card" if period else "")):
         ui.label(label).classes("text-caption text-muted")
         ui.label(value).classes(f"text-h6 {color}")
         if hint:
@@ -330,9 +341,10 @@ def _period_stats(container: ui.row, stats: PeriodStats | None) -> None:
             f"{'+' if stats.change >= 0 else '-'}${abs(stats.change):,.2f}"
             + (f" ({stats.change_pct:+.1%})" if stats.change_pct is not None else ""),
             pct_color(stats.change),
+            period=True,
         )
-        _stat(tr("Highest"), fmt_usd(stats.high), "", f"{stats.high_on:%Y-%m-%d}")
-        _stat(tr("Lowest"), fmt_usd(stats.low), "", f"{stats.low_on:%Y-%m-%d}")
+        _stat(tr("Highest"), fmt_usd(stats.high), "", f"{stats.high_on:%Y-%m-%d}", period=True)
+        _stat(tr("Lowest"), fmt_usd(stats.low), "", f"{stats.low_on:%Y-%m-%d}", period=True)
 
 
 def _movers(container: ui.row, portfolio: Portfolio, period: str) -> None:

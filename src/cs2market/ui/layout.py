@@ -43,6 +43,7 @@ body.body--dark { --q-dark-page: var(--bg); --q-dark: var(--surface); }
 .nav-item.active { background: var(--hover); font-weight: 600; }
 .nav-item.disabled { color: var(--muted); opacity: .6; }
 .text-muted { color: var(--muted) !important; }
+.period-card { border-color: var(--q-primary) !important; }
 a.plain-link { color: inherit; text-decoration: none; }
 a.plain-link:hover { text-decoration: underline; }
 """
