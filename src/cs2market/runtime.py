@@ -25,6 +25,13 @@ class CollectorStatus:
     enabled: bool
     queued: int  # jobs due now
     paused_seconds: float | None  # set while Steam's rate limit pauses all requests
+    prices: repo.PriceProgress
+    # Rough time to work through the due jobs: about one request each.
+    eta_seconds: float
+
+    @property
+    def loading_prices(self) -> bool:
+        return self.enabled and self.prices.priced < self.prices.total
 
 
 class Runtime:
@@ -36,6 +43,7 @@ class Runtime:
         self._client: SteamClient | None = None
         self._telegram: TelegramBot | None = None
         self._collector_enabled = False
+        self._interval = 0.0
 
     @property
     def sessions(self) -> SessionMaker:
@@ -69,6 +77,7 @@ class Runtime:
         self._market = SteamMarket(client)
         self._telegram = TelegramBot(self._http)
         self._collector_enabled = settings.collector_enabled
+        self._interval = settings.request_interval_seconds
         if settings.collector_enabled:
             notifier = Notifier(self._sessions, self._telegram)
             collector = Collector(self._sessions, self._market, settings, notifier=notifier)
@@ -79,12 +88,15 @@ class Runtime:
     async def collector_status(self) -> CollectorStatus:
         async with self.sessions() as session:
             queued = await repo.due_job_count(session)
+            prices = await repo.price_progress(session)
         until = self._client.cooling_down_until if self._client else None
         paused = until - time.monotonic() if until is not None else None
         return CollectorStatus(
             enabled=self._collector_enabled,
             queued=queued,
             paused_seconds=paused if paused and paused > 0 else None,
+            prices=prices,
+            eta_seconds=queued * self._interval,
         )
 
     async def stop(self) -> None:

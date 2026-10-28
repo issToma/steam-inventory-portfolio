@@ -114,6 +114,8 @@ class FetchJob(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     kind: Mapped[str] = mapped_column(Text)
     target: Mapped[str] = mapped_column(Text)
+    # Due jobs run highest priority first (scheduling.fetch_priority for price jobs).
+    priority: Mapped[int] = mapped_column(SmallInteger, server_default="0")
     status: Mapped[str] = mapped_column(Text, server_default="pending")
     attempts: Mapped[int] = mapped_column(Integer, server_default="0")
     run_after: Mapped[datetime] = mapped_column(

@@ -11,6 +11,7 @@ from sqlalchemy import ColumnElement, and_, case, delete, func, or_, select, tex
 from sqlalchemy.dialects.postgresql import distinct_on, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cs2market import scheduling
 from cs2market.core.games import CS2_APPID
 from cs2market.core.parsers import (
     InventoryItem,
@@ -107,6 +108,11 @@ async def _track(
     return item
 
 
+# Jobs that everything else waits for: the inventory itself, exchange rates, and finding
+# out what an item is before its history can be fetched.
+_KIND_PRIORITY = {JOB_INVENTORY: 100, JOB_FX: 100, JOB_RESOLVE: 50}
+
+
 async def add_to_watchlist(
     session: AsyncSession,
     market_hash_name: str,
@@ -115,6 +121,7 @@ async def add_to_watchlist(
 ) -> Item:
     item = await _track(session, market_hash_name, found, appid)
     await session.execute(insert(WatchlistEntry).values(item_id=item.id).on_conflict_do_nothing())
+    await ensure_history_job(session, item)  # again, now as a watched item
     return item
 
 
@@ -140,11 +147,15 @@ async def _drop_item_jobs(session: AsyncSession, item: Item) -> None:
 async def ensure_history_job(session: AsyncSession, item: Item) -> None:
     """Queue history collection: per group when the group is known, per item otherwise."""
     by_name = item_target(item.appid, item.market_hash_name)
+    priority = scheduling.fetch_priority(
+        item.item_type, watched=await any_watched(session, [item.id])
+    )
     if item.bucket_group_id:
-        await ensure_job(session, JOB_GROUP, item_target(item.appid, item.bucket_group_id))
+        group = item_target(item.appid, item.bucket_group_id)
+        await ensure_job(session, JOB_GROUP, group, priority=priority)
         await delete_job(session, JOB_HISTORY, by_name)
     else:
-        await ensure_job(session, JOB_HISTORY, by_name)
+        await ensure_job(session, JOB_HISTORY, by_name, priority=priority)
 
 
 def _tracked_condition() -> ColumnElement[bool]:
@@ -282,19 +293,32 @@ async def latest_fx(session: AsyncSession) -> dict[int, Decimal]:
 
 
 async def ensure_job(
-    session: AsyncSession, kind: str, target: str, run_after: datetime | None = None
+    session: AsyncSession,
+    kind: str,
+    target: str,
+    run_after: datetime | None = None,
+    *,
+    priority: int | None = None,
 ) -> None:
-    values: dict[str, object] = {"kind": kind, "target": target}
+    """Queue a job unless it exists; an existing job keeps the higher of the priorities."""
+    priority = _KIND_PRIORITY.get(kind, 0) if priority is None else priority
+    values: dict[str, object] = {"kind": kind, "target": target, "priority": priority}
     if run_after is not None:
         values["run_after"] = run_after
-    await session.execute(insert(FetchJob).values(**values).on_conflict_do_nothing())
+    stmt = insert(FetchJob).values(**values)
+    await session.execute(
+        stmt.on_conflict_do_update(
+            index_elements=[FetchJob.kind, FetchJob.target],
+            set_={"priority": func.greatest(FetchJob.priority, stmt.excluded.priority)},
+        )
+    )
 
 
 async def next_due_job(session: AsyncSession, now: datetime) -> FetchJob | None:
     result = await session.scalars(
         select(FetchJob)
         .where(FetchJob.run_after <= now)
-        .order_by(FetchJob.run_after, FetchJob.id)
+        .order_by(FetchJob.priority.desc(), FetchJob.run_after, FetchJob.id)
         .limit(1)
     )
     return result.one_or_none()
@@ -652,7 +676,7 @@ async def set_setting(session: AsyncSession, key: str, value: str | None) -> Non
 
 async def run_job_now(session: AsyncSession, kind: str, target: str) -> None:
     """Queue a job, or move an existing one to the front of the queue."""
-    stmt = insert(FetchJob).values(kind=kind, target=target)
+    stmt = insert(FetchJob).values(kind=kind, target=target, priority=_KIND_PRIORITY.get(kind, 0))
     await session.execute(
         stmt.on_conflict_do_update(
             index_elements=[FetchJob.kind, FetchJob.target], set_={"run_after": func.now()}
@@ -747,6 +771,25 @@ async def get_account(session: AsyncSession) -> Account | None:
         positions=int(positions) if positions is not None else None,
         job=await get_job(session, JOB_INVENTORY, steam_id),
     )
+
+
+@dataclass(frozen=True)
+class PriceProgress:
+    """How many of the portfolio's items have prices yet."""
+
+    priced: int
+    total: int
+
+
+async def price_progress(session: AsyncSession) -> PriceProgress:
+    held = select(Holding.item_id).where(_active_holding()).distinct().subquery()
+    has_prices = select(PricePoint.item_id).where(PricePoint.item_id == held.c.item_id).exists()
+    total, priced = (
+        await session.execute(
+            select(func.count(), func.count().filter(has_prices)).select_from(held)
+        )
+    ).one()
+    return PriceProgress(priced=priced, total=total)
 
 
 async def due_job_count(session: AsyncSession) -> int:
@@ -937,6 +980,7 @@ async def add_alert(
     )
     session.add(rule)
     await session.flush()
+    await ensure_history_job(session, item)  # again, now as a watched item
     return rule
 
 

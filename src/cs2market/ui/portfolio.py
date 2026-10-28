@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any
 
 import pandas as pd
@@ -23,6 +24,7 @@ from cs2market.ui.common import (
     icon_url,
     pct_color,
     rarity_color,
+    span,
     sparkline_points,
     time_ago,
     time_until,
@@ -152,15 +154,17 @@ def register() -> None:
                         .classes("segmented")
                     )
                 # Side by side on wide screens; the period group wraps below on narrow ones.
-                # Each group takes half of the row and its cards share that half equally.
+                # Each group's share of the row follows its number of cards (_fit_cards).
                 with ui.row().classes("w-full gap-x-10 gap-y-4 items-stretch"):
-                    with ui.column().classes("gap-1 flex-1 min-w-[26rem]"):
+                    with ui.column().classes("gap-1") as now_group:
                         ui.label(tr("Now")).classes("text-overline text-muted")
                         totals = ui.row().classes("w-full gap-3 items-stretch no-wrap")
                         with totals:
                             for _ in range(3):
                                 ui.skeleton(height="6.75rem").classes("flex-1")
-                    with ui.column().classes("gap-1 flex-1 min-w-[26rem]"):
+                        _fit_cards(now_group, 3)
+                    with ui.column().classes("gap-1") as period_group:
+                        _fit_cards(period_group, 3)
                         with ui.row().classes("items-baseline gap-2"):
                             period_caption = ui.label().classes("text-overline text-primary")
                             period_since = ui.label().classes("text-caption text-muted")
@@ -233,12 +237,19 @@ def register() -> None:
                         )
                     _stat(tr("Positions"), str(len(portfolio.positions)))
                     if portfolio.unpriced:
+                        status = await runtime.collector_status()
                         _stat(
                             tr("Waiting for prices"),
                             str(portfolio.unpriced),
                             "",
-                            tr("fetched shortly"),
+                            tr(
+                                "all prices in about {span}",
+                                span=span(timedelta(seconds=status.eta_seconds)),
+                            )
+                            if status.enabled and status.eta_seconds
+                            else tr("fetched shortly"),
                         )
+                _fit_cards(now_group, len(totals.default_slot.children))
                 table.columns = columns(
                     with_pnl=any(p.pnl is not None for p in portfolio.positions)
                 )
@@ -357,6 +368,12 @@ def register() -> None:
             # Show the page at once with placeholders; the data follows a moment later.
             ui.timer(0.05, refresh, once=True)
             ui.timer(60, refresh)
+
+
+def _fit_cards(group: ui.column, cards: int) -> None:
+    """Size a group of stat cards by its card count, so no card is squeezed under another."""
+    min_width = cards * 9 + (cards - 1) * 0.75  # rem: min-w-36 cards with gap-3 between
+    group.style(f"flex: {cards} 1 0; min-width: min({min_width}rem, 100%)")
 
 
 def _stat(label: str, value: str, color: str = "", hint: str = "", *, period: bool = False) -> None:

@@ -409,4 +409,9 @@ RU: dict[str, str] = {
     "now {price}, {change} in {window}": "сейчас {price}, {change} за {window}",
     "off": "выключен",
     "waiting": "ждёт",
+    # Price loading progress
+    "Loading prices · {priced} of {total} · ~{eta} left": (
+        "Загружаем цены · {priced} из {total} · осталось ~{eta}"
+    ),
+    "all prices in about {span}": "все цены примерно через {span}",
 }

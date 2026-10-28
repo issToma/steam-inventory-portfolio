@@ -3,6 +3,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, Literal
 from urllib.parse import quote
 
@@ -14,6 +15,7 @@ from cs2market.db import repo
 from cs2market.i18n import LANGUAGES, Language, current_language, set_language, tr, tr_n
 from cs2market.runtime import runtime
 from cs2market.search import SearchQuery, search_local
+from cs2market.ui.common import span
 
 type Theme = Literal["dark", "dim", "light"]
 
@@ -254,6 +256,16 @@ def _collector_indicator() -> None:
         elif status.paused_seconds is not None:
             minutes = max(round(status.paused_seconds / 60), 1)
             color, text = "amber", tr("Steam paused us · {minutes} min", minutes=minutes)
+        elif status.loading_prices:
+            color, text = (
+                "light-blue",
+                tr(
+                    "Loading prices · {priced} of {total} · ~{eta} left",
+                    priced=status.prices.priced,
+                    total=status.prices.total,
+                    eta=span(timedelta(seconds=status.eta_seconds)),
+                ),
+            )
         elif status.queued:
             color, text = (
                 "light-blue",

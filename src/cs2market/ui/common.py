@@ -18,7 +18,8 @@ def pct_color(value: float | None) -> str:
     return "text-positive" if value > 0 else "text-negative"
 
 
-def _span(delta: timedelta) -> str:
+def span(delta: timedelta) -> str:
+    """A rough duration in words, e.g. "3 hours"."""
     seconds = abs(delta.total_seconds())
     for one, many, size in (
         ("{n} day", "{n} days", 86400),
@@ -32,14 +33,14 @@ def _span(delta: timedelta) -> str:
 
 def time_ago(moment: datetime) -> str:
     delta = datetime.now(UTC) - moment
-    return tr("just now") if delta < timedelta(minutes=1) else tr("{span} ago", span=_span(delta))
+    return tr("just now") if delta < timedelta(minutes=1) else tr("{span} ago", span=span(delta))
 
 
 def time_until(moment: datetime) -> str:
     delta = moment - datetime.now(UTC)
     if delta < timedelta(minutes=1):
         return tr("any moment now")
-    return tr("in {span}", span=_span(delta))
+    return tr("in {span}", span=span(delta))
 
 
 # Steam's name colours by rarity; ★ (knives and gloves) has its own.

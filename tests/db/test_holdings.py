@@ -1,9 +1,10 @@
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cs2market.core.parsers import InventoryItem
+from cs2market.core.parsers import HistoryPoint, InventoryItem, PriceHistory
 from cs2market.db import repo
 from cs2market.db.tables import FetchJob, Holding
 
@@ -214,3 +215,37 @@ async def test_positions_made_without_an_account_go_to_the_first_one(
     assert await active(session) == {}
     await repo.set_inventory_owner(session, MAIN)
     assert await active(session) == {"Recoil Case": ("manual", 1)}
+
+
+def typed(name: str, item_type: str) -> InventoryItem:
+    return InventoryItem(name, item_type, None, "1", None, True, 1, appid=570)
+
+
+async def test_valuable_and_watched_items_are_fetched_first(session: AsyncSession) -> None:
+    await repo.sync_inventory(
+        session,
+        [
+            typed("Cheap Hat", "Common Wearable"),
+            typed("Fancy Hat", "Immortal Wearable"),
+            typed("Odd Hat", "Rare Wearable"),
+        ],
+    )
+    await repo.add_to_watchlist(session, "Odd Hat", appid=570)
+
+    order = []
+    now = datetime.now(UTC) + timedelta(minutes=1)
+    while (job := await repo.next_due_job(session, now)) is not None:
+        order.append(job.target)
+        await repo.finish_job(session, job, None)
+
+    assert order == ["570:Odd Hat", "570:Fancy Hat", "570:Cheap Hat"]
+
+
+async def test_price_progress(session: AsyncSession) -> None:
+    await repo.sync_inventory(session, [inv("Kilowatt Case"), inv("Revolution Case")])
+    item = await repo.get_item_by_name(session, "Kilowatt Case")
+    assert item is not None
+    history = PriceHistory(1, [HistoryPoint(datetime.now(UTC), "hour", Decimal("1"), 1)])
+    await repo.save_history(session, item.id, history)
+
+    assert await repo.price_progress(session) == repo.PriceProgress(priced=1, total=2)

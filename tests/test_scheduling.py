@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 
+from cs2market import scheduling
 from cs2market.core.parsers import HistoryPoint, PriceHistory
 from cs2market.scheduling import (
     DAY,
@@ -58,3 +59,21 @@ def test_held_value_converts_currency() -> None:
     assert held_value_usd([(2, eur), (3, usd)], {3: Decimal("1.1")}) == pytest.approx(28)
     assert held_value_usd([(1, eur)], {}) is None
     assert held_value_usd([(5, history(1))], {}) == 0
+
+
+@pytest.mark.parametrize(
+    ("item_type", "watched", "expected"),
+    [
+        ("Consumer Grade Pistol", True, scheduling.WATCHED_PRIORITY),
+        ("★ Covert Knife", False, 9),
+        ("StatTrak™ Classified Rifle", False, 7),
+        ("Immortal Wearable", False, 8),
+        ("Common Wearable", False, 3),
+        ("Uncommon Bundle", False, 4),
+        ("Foil Trading Card", False, 5),
+        ("Need for Speed Trading Card", False, scheduling.UNKNOWN_PRIORITY),
+        (None, False, scheduling.UNKNOWN_PRIORITY),
+    ],
+)
+def test_fetch_priority(item_type: str | None, watched: bool, expected: int) -> None:
+    assert scheduling.fetch_priority(item_type, watched=watched) == expected

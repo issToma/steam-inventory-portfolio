@@ -68,3 +68,43 @@ def held_value_usd(
             return None
         total += float(history.points[-1].price * rate) * quantity
     return total
+
+
+# Order of the first price downloads, highest first: a big inventory takes hours to load, so
+# items the user watches and the likely valuable ones (by the rarity word in their market
+# type, e.g. "★ Covert Knife", "Immortal Wearable") come before the cheap bulk.
+WATCHED_PRIORITY = 10
+UNKNOWN_PRIORITY = 4
+_RARITY_PRIORITY = {
+    "★": 9,
+    "Contraband": 9,
+    "Arcana": 9,
+    "Covert": 8,
+    "Immortal": 8,
+    "Extraordinary": 8,
+    "Classified": 7,
+    "Legendary": 7,
+    "Exotic": 7,
+    "Restricted": 6,
+    "Mythical": 6,
+    "Remarkable": 6,
+    "Mil-Spec": 5,
+    "Rare": 5,
+    "High": 5,
+    "Foil": 5,
+    "Industrial": 4,
+    "Uncommon": 4,
+    "Consumer": 3,
+    "Base": 3,
+    "Common": 3,
+}
+
+
+def fetch_priority(item_type: str | None, *, watched: bool) -> int:
+    """How soon to fetch an item's prices among the due jobs (higher first)."""
+    if watched:
+        return WATCHED_PRIORITY
+    for word in (item_type or "").split():
+        if word in _RARITY_PRIORITY:
+            return _RARITY_PRIORITY[word]
+    return UNKNOWN_PRIORITY
