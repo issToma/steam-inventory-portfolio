@@ -278,6 +278,7 @@ RU: dict[str, str] = {
     # Watchlist
     "Items you follow without owning them.": "Предметы, за которыми вы следите, не владея ими.",
     "In watchlist": "В watchlist",
+    "Removed {name} from the watchlist": "{name} убран из watchlist",
     "Sales/day": "Продаж/день",
     "Added {name}; history arrives in about a minute": (
         "Добавлено: {name}; история появится примерно через минуту"

@@ -34,6 +34,7 @@ def columns() -> list[dict[str, Any]]:
         {"name": "trend", "label": "", "field": "spark", "align": "center"},
         {"name": "volume", "label": tr("Sales/day"), "field": "volume", "align": "right"},
         {"name": "status", "label": tr("Status"), "field": "status", "align": "left"},
+        {"name": "remove", "label": "", "field": "id", "align": "right"},
     ]
 
 
@@ -130,7 +131,24 @@ def register() -> None:
             )
             table.add_slot("body-cell-name", NAME_CELL_SLOT)
             table.add_slot("body-cell-trend", SPARK_CELL_SLOT)
+            table.add_slot(
+                "body-cell-remove",
+                '<q-td :props="props">'
+                '<q-btn flat dense round size="sm" icon="close" color="grey" '
+                "@click.stop=\"$parent.$emit('remove', props.row)\" />"
+                "</q-td>",
+            )
             table.on("rowClick", lambda e: ui.navigate.to(f"/item/{e.args[1]['id']}"))
+
+            async def remove(event: Any) -> None:
+                row = event.args
+                async with runtime.sessions() as session:
+                    await repo.remove_from_watchlist(session, row["id"])
+                    await session.commit()
+                ui.notify(tr("Removed {name} from the watchlist", name=row["name"]))
+                await refresh()
+
+            table.on("remove", remove)
 
             async def refresh() -> None:
                 table.rows = await _rows()
