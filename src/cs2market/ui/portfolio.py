@@ -28,7 +28,7 @@ from cs2market.ui.common import (
     time_until,
 )
 from cs2market.ui.games import GameSwitch, game_names, searchable_games
-from cs2market.ui.layout import page_frame, themed_chart
+from cs2market.ui.layout import SEGMENTED_PROPS, page_frame, themed_chart
 from cs2market.ui.positions import DELETE, PositionForm, add_position, position_dialog
 from cs2market.ui.search_box import search_box
 
@@ -146,7 +146,11 @@ def register() -> None:
                 with ui.row().classes("w-full items-center"):
                     ui.label(tr("Portfolio value")).classes("text-subtitle1")
                     ui.space()
-                    period_toggle = ui.toggle(period_options(), value="30D").props("dense")
+                    period_toggle = (
+                        ui.toggle(period_options(), value="30D")
+                        .props(SEGMENTED_PROPS)
+                        .classes("segmented")
+                    )
                 # Side by side on wide screens; the period group wraps below on narrow ones.
                 # Each group takes half of the row and its cards share that half equally.
                 with ui.row().classes("w-full gap-x-10 gap-y-4 items-stretch"):

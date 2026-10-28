@@ -23,7 +23,7 @@ from cs2market.i18n import tr
 from cs2market.runtime import runtime
 from cs2market.ui.common import fmt_pct, fmt_usd, icon_url, pct_color, rarity_color
 from cs2market.ui.games import game_names, name_of
-from cs2market.ui.layout import page_frame, themed_chart
+from cs2market.ui.layout import SEGMENTED_PROPS, page_frame, themed_chart
 from cs2market.ui.portfolio import GRID_COLOR
 from cs2market.ui.positions import add_position
 
@@ -265,7 +265,11 @@ def register() -> None:
                 _stat(tr("You receive after fee"), fmt_usd(metrics.proceeds_after_fee))
 
             with ui.row().classes("items-center gap-4"):
-                range_toggle = ui.toggle(range_options(), value="30D")
+                range_toggle = (
+                    ui.toggle(range_options(), value="30D")
+                    .props(SEGMENTED_PROPS)
+                    .classes("segmented")
+                )
                 sma_switch = ui.switch("SMA")
                 sma_window = (
                     ui.number(value=20, min=2, max=500, step=1).props("dense").classes("w-20")

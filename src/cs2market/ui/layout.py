@@ -47,10 +47,18 @@ body.body--dark { --q-dark-page: var(--bg); --q-dark: var(--surface); }
 /* Game switch: separate, roomy pill buttons; the active one is filled with the accent. */
 .game-switch { gap: 8px; background: transparent !important; box-shadow: none !important; }
 .game-switch .q-btn { border-radius: 999px !important; padding: 6px 18px; font-size: 0.95rem;
-                      border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+                      border: 1px solid var(--border); background: var(--surface);
+                      color: var(--text); }
 .game-switch .q-btn.bg-primary { border-color: var(--q-primary); }
 .game-switch .q-btn:hover { background: var(--hover); }
 .game-switch .q-btn.bg-primary:hover { background: var(--q-primary) !important; }
+/* Period switches: one bordered capsule of compact segments, the chosen one filled. */
+.segmented { border: 1px solid var(--border); border-radius: 999px; padding: 3px;
+             background: var(--bg) !important; box-shadow: none !important; }
+.segmented .q-btn { border-radius: 999px !important; padding: 2px 14px; min-height: 30px;
+                    font-weight: 500; color: var(--muted); }
+.segmented .q-btn:hover { color: var(--text); }
+.segmented .q-btn.bg-primary { color: #fff; }
 a.plain-link { color: inherit; text-decoration: none; }
 a.plain-link:hover { text-decoration: underline; }
 """
@@ -71,6 +79,10 @@ NAV: list[NavItem] = [
     NavItem("market", "Market", "query_stats", None),
 ]
 NAV_BOTTOM: list[NavItem] = [NavItem("settings", "Settings", "settings", "/settings")]
+
+
+# Quasar props shared by the period switches (styled by the .segmented class).
+SEGMENTED_PROPS = "no-caps unelevated toggle-color=primary toggle-text-color=white"
 
 
 def current_theme() -> Theme:
