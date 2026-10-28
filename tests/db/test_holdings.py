@@ -103,3 +103,30 @@ async def test_large_inventory_sync(session: AsyncSession) -> None:
     assert await repo.sync_inventory(session, items) == 12
     assert await repo.sync_inventory(session, items) == 12
     assert len(await active(session)) == 12
+
+
+async def test_pinned_position_survives_leaving_the_inventory(session: AsyncSession) -> None:
+    await repo.sync_inventory(session, [inv("Kilowatt Case", amount=5), inv("Other Case")])
+    await repo.pin_all(session, pinned=True)
+
+    # Three cases go to a storage unit, the other case is sold... and stays pinned.
+    await repo.sync_inventory(session, [inv("Kilowatt Case", amount=2)])
+    assert await active(session) == {
+        "Kilowatt Case": ("inventory", 5),
+        "Other Case": ("inventory", 1),
+    }
+
+    # Buying more raises the pinned quantity.
+    await repo.sync_inventory(session, [inv("Kilowatt Case", amount=7)])
+    assert (await active(session))["Kilowatt Case"] == ("inventory", 7)
+
+
+async def test_unpinned_position_follows_the_inventory_again(session: AsyncSession) -> None:
+    await repo.sync_inventory(session, [inv("Kilowatt Case", amount=5)])
+    ((holding, _),) = await repo.active_holdings(session)
+    await repo.set_pinned(session, holding.id, True)
+    await repo.set_pinned(session, holding.id, False)
+
+    await repo.sync_inventory(session, [inv("Kilowatt Case", amount=2)])
+
+    assert await active(session) == {"Kilowatt Case": ("inventory", 2)}

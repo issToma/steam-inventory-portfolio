@@ -77,6 +77,7 @@ class PositionInput:
     icon_url: str | None = None
     rarity: str | None = None
     quality: str | None = None
+    pinned: bool = False
 
 
 @dataclass(frozen=True)
@@ -100,6 +101,7 @@ class Position:
     rarity: str | None = None
     quality: str | None = None
     trend: tuple[float, ...] = ()
+    pinned: bool = False
     # Price change per period key of PERIODS.
     changes: tuple[tuple[str, float | None], ...] = ()
 
@@ -166,6 +168,7 @@ def value_positions(inputs: Sequence[PositionInput]) -> Portfolio:
             rarity=p.rarity,
             quality=p.quality,
             trend=tuple(recent_trend(p.history)),
+            pinned=p.pinned,
             changes=tuple((key, change_over(prices, span)) for key, span in PERIODS.items()),
         )
         for p, price, value, proceeds, cost, pnl, metrics, prices in rows
@@ -246,6 +249,7 @@ async def _compute_portfolio(sessions: SessionMaker) -> Portfolio:
                 icon_url=item.icon_url,
                 rarity=item.rarity,
                 quality=item.quality,
+                pinned=holding.pinned,
             )
             for holding, item in holdings
         ]

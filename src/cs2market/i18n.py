@@ -188,6 +188,13 @@ RU: dict[str, str] = {
     ),
     "Add to portfolio": "В портфель",
     "Add item": "Добавить предмет",
+    "Pinned positions stay when items leave the inventory, for example into a storage unit.": (
+        "Закреплённые позиции остаются, когда предметы уходят из инвентаря, например в хранилище."
+    ),
+    "Pin all inventory items": "Закрепить все предметы инвентаря",
+    "Unpin all": "Открепить все",
+    "All inventory items pinned": "Все предметы инвентаря закреплены",
+    "All items unpinned": "Все предметы откреплены",
     "Top gainers, {period}": "Лидеры роста, {period}",
     "Top losers, {period}": "Лидеры падения, {period}",
     "all time": "за всё время",

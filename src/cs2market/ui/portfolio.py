@@ -59,6 +59,7 @@ def _all_columns() -> list[dict[str, Any]]:
         {"name": "change_7d", "label": "7d", "field": "change_7d", "align": "right"},
         {"name": "trend", "label": "", "field": "spark", "align": "center"},
         {"name": "pnl", "label": tr("P&L"), "field": "pnl", "align": "right"},
+        {"name": "pin", "label": "", "field": "pinned", "align": "center"},
         {"name": "actions", "label": "", "field": "id", "align": "right"},
     ]
 
@@ -83,6 +84,8 @@ def _row(p: Position) -> dict[str, Any]:
         "change_7d": fmt_pct(p.change_7d),
         "pnl": "—" if p.pnl is None else f"{'+' if p.pnl >= 0 else '-'}${abs(p.pnl):,.2f}",
         "source": p.source,
+        "pinnable": p.source == repo.SOURCE_INVENTORY,
+        "pinned": p.pinned,
     }
 
 
@@ -145,13 +148,34 @@ def register() -> None:
             movers = ui.row().classes("w-full gap-3")
 
             # --- Positions ---------------------------------------------------------------
-            ui.label(tr("Positions")).classes("text-h6")
+            with ui.row().classes("w-full items-center"):
+                ui.label(tr("Positions")).classes("text-h6")
+                ui.space()
+                with ui.button(icon="lock").props("flat dense no-caps"):
+                    ui.tooltip(
+                        tr(
+                            "Pinned positions stay when items leave the inventory, "
+                            "for example into a storage unit."
+                        )
+                    )
+                    with ui.menu():
+                        ui.menu_item(tr("Pin all inventory items"), on_click=lambda: pin_all(True))
+                        ui.menu_item(tr("Unpin all"), on_click=lambda: pin_all(False))
             table = (
                 ui.table(columns=columns(with_pnl=False), rows=[], row_key="id")
                 .classes("w-full")
                 .props("loading")
             )
             table.add_slot("body-cell-name", NAME_CELL_SLOT)
+            table.add_slot(
+                "body-cell-pin",
+                '<q-td :props="props">'
+                '<q-btn v-if="props.row.pinnable" flat dense round size="sm" '
+                ":icon=\"props.row.pinned ? 'lock' : 'lock_open'\" "
+                ":color=\"props.row.pinned ? 'amber' : 'grey'\" "
+                "@click.stop=\"$parent.$emit('pin', props.row)\" />"
+                "</q-td>",
+            )
             table.add_slot("body-cell-trend", SPARK_CELL_SLOT)
             table.add_slot(
                 "body-cell-actions",
@@ -266,7 +290,22 @@ def register() -> None:
                     search_box(action_label=tr("Add to portfolio"), on_pick=pick)
                 dialog.open()
 
+            async def toggle_pin(event: Any) -> None:
+                row = event.args
+                async with runtime.sessions() as session:
+                    await repo.set_pinned(session, row["id"], not row["pinned"])
+                    await session.commit()
+                await refresh()
+
+            async def pin_all(pinned: bool) -> None:
+                async with runtime.sessions() as session:
+                    await repo.pin_all(session, pinned)
+                    await session.commit()
+                ui.notify(tr("All inventory items pinned") if pinned else tr("All items unpinned"))
+                await refresh()
+
             table.on("edit", edit)
+            table.on("pin", toggle_pin)
             period_toggle.on_value_change(redraw)
             # Show the page at once with placeholders; the data follows a moment later.
             ui.timer(0.05, refresh, once=True)

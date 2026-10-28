@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     SmallInteger,
     Text,
     UniqueConstraint,
+    false,
     func,
     text,
 )
@@ -169,6 +171,9 @@ class Holding(Base):
     bought_at: Mapped[date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # A pinned inventory position survives syncs: it never shrinks or disappears because the
+    # items left the inventory (for example, into a storage unit).
+    pinned: Mapped[bool] = mapped_column(Boolean, server_default=false())
 
 
 class AppSetting(Base):

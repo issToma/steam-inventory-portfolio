@@ -471,7 +471,8 @@ async def active_holdings(session: AsyncSession) -> list[tuple[Holding, Item]]:
 async def sync_inventory(session: AsyncSession, items: list[InventoryItem]) -> int:
     """Make the inventory positions match the given inventory. Returns the position count.
 
-    Items that cannot be sold on the market are ignored: they have no price.
+    Items that cannot be sold on the market are ignored: they have no price. Pinned positions
+    keep their quantity when fewer or none of their items are left in the inventory.
     """
     quantities: dict[str, int] = {}
     details: dict[str, InventoryItem] = {}
@@ -519,7 +520,14 @@ async def sync_inventory(session: AsyncSession, items: list[InventoryItem]) -> i
                 # statement to a generic plan it cannot match a parameter to the partial
                 # unique index, and the insert fails from the sixth row on.
                 index_where=text(f"source = '{SOURCE_INVENTORY}'"),
-                set_={"quantity": stmt.excluded.quantity, "removed_at": None},
+                set_={
+                    # A pinned position only grows: items moved to storage stay counted.
+                    "quantity": case(
+                        (Holding.pinned, func.greatest(Holding.quantity, stmt.excluded.quantity)),
+                        else_=stmt.excluded.quantity,
+                    ),
+                    "removed_at": None,
+                },
             )
         )
 
@@ -527,6 +535,7 @@ async def sync_inventory(session: AsyncSession, items: list[InventoryItem]) -> i
         select(Holding).where(
             Holding.source == SOURCE_INVENTORY,
             Holding.removed_at.is_(None),
+            Holding.pinned.is_(False),
             Holding.item_id.not_in(present),
         )
     )
@@ -676,7 +685,7 @@ async def portfolio_fingerprint(session: AsyncSession) -> tuple[object, ...]:
                 (SELECT max(fetched_at) FROM price_history),
                 (SELECT max(day) FROM fx_rates),
                 (SELECT md5(coalesce(string_agg(
-                    concat_ws(':', id, quantity, buy_price_usd, removed_at, location),
+                    concat_ws(':', id, quantity, buy_price_usd, removed_at, location, pinned),
                     ',' ORDER BY id), ''))
                  FROM holdings)
             """
@@ -707,3 +716,20 @@ async def load_histories(
             StoredPoint(ts, cast(Resolution, resolution), price, volume, currency)
         )
     return histories
+
+
+async def set_pinned(session: AsyncSession, holding_id: int, pinned: bool) -> None:
+    await session.execute(
+        update(Holding)
+        .where(Holding.id == holding_id, Holding.source == SOURCE_INVENTORY)
+        .values(pinned=pinned)
+    )
+
+
+async def pin_all(session: AsyncSession, pinned: bool) -> None:
+    """Pin or unpin every active inventory position."""
+    await session.execute(
+        update(Holding)
+        .where(Holding.source == SOURCE_INVENTORY, Holding.removed_at.is_(None))
+        .values(pinned=pinned)
+    )
