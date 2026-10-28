@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # This floor is deliberately not configurable below this value.
 MIN_REQUEST_INTERVAL_SECONDS = 15.0
 # The adaptive pace (opt-in) may go faster, since it backs off on its own after a 429.
-MIN_ADAPTIVE_INTERVAL_SECONDS = 5.0
+MIN_ADAPTIVE_INTERVAL_SECONDS = 1.0
 
 
 class Settings(BaseSettings):
