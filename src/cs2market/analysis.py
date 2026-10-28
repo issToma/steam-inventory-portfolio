@@ -33,11 +33,14 @@ class Metrics:
     proceeds_after_fee: float
 
 
-def to_frame(points: Sequence[StoredPoint], fx: Mapping[int, Decimal]) -> pd.DataFrame:
+def to_frame(
+    points: Sequence[StoredPoint], fx: Mapping[int, Decimal], *, drop_outliers: bool = True
+) -> pd.DataFrame:
     """Columns: ts (UTC), resolution, price (USD), volume.
 
     Every stored price was converted by Steam at the time of the last fetch, so all of them
-    are converted back with the latest Steam rate (docs/SPEC.md, section 4.2).
+    are converted back with the latest Steam rate (docs/SPEC.md, section 4.2). Outliers
+    (see remove_outliers) are dropped unless asked otherwise.
     """
     rows = []
     for p in points:
@@ -50,7 +53,40 @@ def to_frame(points: Sequence[StoredPoint], fx: Mapping[int, Decimal]) -> pd.Dat
         rows.append((p.ts, p.resolution, float(p.price * rate), p.volume))
     frame = pd.DataFrame(rows, columns=["ts", "resolution", "price", "volume"])
     frame["ts"] = pd.to_datetime(frame["ts"], utc=True)
-    return frame
+    return remove_outliers(frame) if drop_outliers else frame
+
+
+# A point is an outlier only if all of these hold, compared with its neighbours of the same
+# resolution: few sales behind it, far from their median in relative terms, and far outside
+# their usual spread (Hampel filter: median absolute deviation scaled to a std. deviation).
+OUTLIER_MAX_SALES = 2
+OUTLIER_MIN_DEVIATION = 0.30
+OUTLIER_MAD_SCALE = 3.0
+OUTLIER_WINDOW = 11
+
+
+def outlier_mask(frame: pd.DataFrame) -> pd.Series:
+    """True for points that are single odd sales, such as one collector's sticker craft."""
+    mask = pd.Series(False, index=frame.index)
+    for _, group in frame.groupby("resolution"):
+        prices = group.sort_values("ts")["price"]
+        rolling = prices.rolling(OUTLIER_WINDOW, center=True, min_periods=5)
+        median = rolling.median()
+        mad = (prices - median).abs().rolling(OUTLIER_WINDOW, center=True, min_periods=5).median()
+        deviation = (prices - median).abs()
+        odd = (
+            (group.loc[prices.index, "volume"] <= OUTLIER_MAX_SALES)
+            & (deviation > OUTLIER_MIN_DEVIATION * median)
+            & (deviation > OUTLIER_MAD_SCALE * 1.4826 * mad)
+        )
+        mask.loc[odd.index] = odd.fillna(False)
+    return mask
+
+
+def remove_outliers(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    return frame[~outlier_mask(frame)].reset_index(drop=True)
 
 
 def hourly_series(frame: pd.DataFrame) -> pd.DataFrame:

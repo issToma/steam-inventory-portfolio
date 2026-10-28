@@ -291,6 +291,11 @@ RU: dict[str, str] = {
         "({rate} USD за единицу)."
     ),
     "Fee calculator": "Калькулятор комиссии",
+    "Hide outliers": "Скрывать выбросы",
+    "Hides single odd sales, such as one sticker craft sold far above the usual price. Metrics always ignore them.": (
+        "Скрывает одиночные необычные продажи, например крафт с наклейками намного дороже "
+        "обычной цены. Метрики их всегда не учитывают."
+    ),
     "Listing price (buyer pays), $": "Цена лота (платит покупатель), $",
     "You receive {proceeds}, fees {fees}": "Вы получите {proceeds}, комиссия {fees}",
     "Remove from watchlist": "Убрать из watchlist",

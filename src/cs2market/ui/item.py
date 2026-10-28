@@ -11,6 +11,7 @@ from cs2market.analysis import (
     daily_series,
     ema,
     hourly_series,
+    remove_outliers,
     sma,
     to_frame,
 )
@@ -198,7 +199,7 @@ def register() -> None:
                 )
 
             try:
-                frame = to_frame(points, fx)
+                raw_frame = to_frame(points, fx, drop_outliers=False)
             except MissingRateError as exc:
                 ui.label(
                     tr(
@@ -208,6 +209,7 @@ def register() -> None:
                     )
                 )
                 return
+            frame = remove_outliers(raw_frame)
             metrics = compute_metrics(frame)
             if metrics is None:
                 ui.label(
@@ -256,6 +258,14 @@ def register() -> None:
                 sma_window = (
                     ui.number(value=20, min=2, max=500, step=1).props("dense").classes("w-20")
                 )
+                outliers_switch = ui.switch(tr("Hide outliers"), value=True)
+                with outliers_switch:
+                    ui.tooltip(
+                        tr(
+                            "Hides single odd sales, such as one sticker craft sold far above "
+                            "the usual price. Metrics always ignore them."
+                        )
+                    )
                 ema_switch = ui.switch("EMA")
                 ema_window = (
                     ui.number(value=20, min=2, max=500, step=1).props("dense").classes("w-20")
@@ -264,7 +274,7 @@ def register() -> None:
             chart = ui.echart({}, theme=echart_theme()).classes("w-full h-[520px]")
 
             def redraw() -> None:
-                series = _select(frame, range_toggle.value)
+                series = _select(frame if outliers_switch.value else raw_frame, range_toggle.value)
                 chart.options.clear()
                 chart.options.update(
                     _chart_options(
@@ -275,7 +285,14 @@ def register() -> None:
                 )
                 chart.update()
 
-            for control in (range_toggle, sma_switch, sma_window, ema_switch, ema_window):
+            for control in (
+                range_toggle,
+                sma_switch,
+                sma_window,
+                ema_switch,
+                ema_window,
+                outliers_switch,
+            ):
                 control.on_value_change(redraw)
             redraw()
 

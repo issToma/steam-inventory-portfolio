@@ -81,3 +81,30 @@ def test_recent_trend_averages_the_last_week() -> None:
 
     assert recent_trend(to_frame(points, {})) == [10, 11]
     assert recent_trend(to_frame([], {})) == []
+
+
+def spiky(volume: int) -> list[StoredPoint]:
+    prices = ["10", "10.2", "9.9", "10.1", "10", "30", "10.1", "9.8", "10", "10.2", "10"]
+    return [point(START + timedelta(days=i), p, volume=volume) for i, p in enumerate(prices)]
+
+
+def test_single_odd_sale_is_dropped() -> None:
+    frame = to_frame(spiky(volume=1), {})
+
+    assert len(frame) == 10
+    assert frame["price"].max() < 11
+
+
+def test_spike_backed_by_many_sales_is_kept() -> None:
+    assert len(to_frame(spiky(volume=50), {})) == 11
+
+
+def test_outliers_can_be_kept_on_request() -> None:
+    assert len(to_frame(spiky(volume=1), {}, drop_outliers=False)) == 11
+
+
+def test_real_trend_is_not_an_outlier() -> None:
+    # A steady climb with single sales: each point is close to its neighbours.
+    points = [point(START + timedelta(days=i), str(10 + i), volume=1) for i in range(20)]
+
+    assert len(to_frame(points, {})) == 20
