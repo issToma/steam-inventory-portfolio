@@ -383,8 +383,9 @@ def _movers(container: ui.row, portfolio: Portfolio, period: str) -> None:
             (tr("Top gainers, {period}", period=label), gainers),
             (tr("Top losers, {period}", period=label), losers),
         ):
-            with ui.card().classes("grow min-w-72"):
-                ui.label(title).classes("text-caption text-muted")
+            # Outlined like the period cards: these follow the period switch too.
+            with ui.card().classes("grow min-w-72 period-card"):
+                ui.label(title).classes("text-caption text-primary")
                 if not entries:
                     ui.label("—").classes("text-muted")
                 for p, change in entries[:3]:
