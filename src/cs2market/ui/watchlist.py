@@ -106,11 +106,11 @@ async def _rows() -> list[dict[str, Any]]:
     async with runtime.sessions() as session:
         items = await repo.watchlist_items(session)
         fx = await repo.latest_fx(session)
-        jobs = await repo.jobs_for(session, [i.market_hash_name for i in items])
+        jobs = await repo.jobs_for(session, items)
         rows = []
         for item in items:
             row: dict[str, Any] = {"id": item.id, "name": item.market_hash_name}
-            job = jobs.get(item.market_hash_name)
+            job = jobs.get(item.id)
             points = await repo.load_history(session, item.id, since)
             try:
                 metrics = compute_metrics(to_frame(points, fx))
@@ -129,7 +129,12 @@ async def _rows() -> list[dict[str, Any]]:
                 }
             if job is not None and job.status == "error":
                 row["status"] = f"error: {job.last_error}"
-            row.setdefault("status", "ok" if metrics else "waiting for first fetch")
+            if metrics is not None:
+                row.setdefault("status", "ok")
+            elif job is not None and job.status == "ok":
+                row.setdefault("status", "no sales on record")
+            else:
+                row.setdefault("status", "waiting for first fetch")
             rows.append(row)
     return rows
 

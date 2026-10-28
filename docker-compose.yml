@@ -21,8 +21,10 @@ services:
     env_file: .env
     environment:
       CS2M_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cs2market}:${POSTGRES_PASSWORD:-cs2market}@postgres:5432/${POSTGRES_DB:-cs2market}
+      # Inside the container the app always listens on 8080; APP_HOST_PORT picks the host side.
+      CS2M_PORT: "8080"
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${APP_HOST_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy

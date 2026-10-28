@@ -156,7 +156,10 @@ def register() -> None:
                 return
             metrics = compute_metrics(frame)
             if metrics is None:
-                ui.label("No data yet: the collector will fetch the history shortly.")
+                ui.label(
+                    "No price history yet. Either the collector has not fetched it, "
+                    "or the item has never been sold on the market."
+                )
                 return
 
             with ui.row().classes("gap-3"):

@@ -6,9 +6,11 @@ from typing import Literal
 
 from cs2market.core.http import SteamClient
 from cs2market.core.parsers import (
+    GroupVariant,
     PriceHistory,
     PriceOverview,
     SearchResult,
+    parse_group_page,
     parse_price_history,
     parse_price_overview,
     parse_search_results,
@@ -114,6 +116,11 @@ class SteamMarket:
             headers=_QUERY_ACTION,
         )
         return parse_price_history(payload, fetched_at=datetime.now(UTC))
+
+    async def group_page(self, bucket_group_id: str) -> dict[str, GroupVariant]:
+        """History and descriptions of every variant in a market group, in one request."""
+        html = await self._client.get_text(f"/market/listings/{self._appid}/{bucket_group_id}")
+        return parse_group_page(html, fetched_at=datetime.now(UTC))
 
     async def price_overview(self, market_hash_name: str, currency: int) -> PriceOverview:
         payload = await self._client.get_json(

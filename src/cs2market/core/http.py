@@ -97,6 +97,25 @@ class SteamClient:
     ) -> Any:
         """Fetch JSON. With `max_wait`, raise SteamBusyError instead of waiting longer
         than that for the interval or a 429 cool-down."""
+        body = await self.get_bytes(path, params, headers, priority=priority, max_wait=max_wait)
+        try:
+            return json.loads(body)
+        except ValueError as exc:
+            raise SteamError(f"{path}: response is not JSON") from exc
+
+    async def get_text(self, path: str, params: Params | None = None) -> str:
+        """Fetch an HTML page (the market's server-rendered pages embed their data)."""
+        return (await self.get_bytes(path, params)).decode("utf-8", errors="replace")
+
+    async def get_bytes(
+        self,
+        path: str,
+        params: Params | None = None,
+        headers: Mapping[str, str] | None = None,
+        *,
+        priority: bool = False,
+        max_wait: float | None = None,
+    ) -> bytes:
         async for attempt in AsyncRetrying(
             retry=retry_if_exception_type(_TransientError),
             stop=stop_after_attempt(3),
@@ -135,7 +154,7 @@ class SteamClient:
         params: Params | None,
         headers: Mapping[str, str] | None,
         max_wait: float | None,
-    ) -> Any:
+    ) -> bytes:
         delay = self._next_allowed - self._clock()
         if max_wait is not None and delay > max_wait:
             raise SteamBusyError(delay)
@@ -165,7 +184,4 @@ class SteamClient:
             raise _TransientError(f"{path}: HTTP {status}")
         if status != 200:
             raise SteamError(f"{path}: HTTP {status}")
-        try:
-            return json.loads(body)
-        except ValueError as exc:
-            raise SteamError(f"{path}: response is not JSON") from exc
+        return body

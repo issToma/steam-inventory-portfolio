@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -8,12 +9,14 @@ import pytest
 from cs2market.core.parsers import (
     SteamFormatError,
     market_hash_name_from_input,
+    parse_group_page,
     parse_item_traits,
     parse_price_history,
     parse_price_overview,
     parse_search_results,
 )
 
+FIXTURES = Path(__file__).parent / "fixtures"
 FETCHED_AT = datetime(2026, 10, 26, 17, 0, tzinfo=UTC)
 
 
@@ -135,3 +138,35 @@ def test_group_url_without_variant_is_rejected() -> None:
         market_hash_name_from_input(
             "https://steamcommunity.com/market/listings/730/G1807209A023004"
         )
+
+
+def test_group_page() -> None:
+    html = (FIXTURES / "group_page.html").read_text(encoding="utf-8")
+
+    variants = parse_group_page(html, FETCHED_AT)
+
+    assert set(variants) == {
+        "AK-47 | Redline (Field-Tested)",
+        "StatTrak™ AK-47 | Redline (Minimal Wear)",
+    }
+    ft = variants["AK-47 | Redline (Field-Tested)"]
+    assert ft.item_type == "Classified Rifle"
+    assert ft.collection == "The Phoenix Collection"
+    assert ft.history is not None
+    assert ft.history.currency == 3
+    assert len(ft.history.points) == 4
+    assert ft.history.points[0].resolution == "day"
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<html></html>",
+        '<script id="valve-ssr-data">not json</script>',
+        '<script id="valve-ssr-data">'
+        '{"renderContext": {"queryData": "{\\"queries\\": []}"}}</script>',
+    ],
+)
+def test_group_page_rejects_unexpected_shape(html: str) -> None:
+    with pytest.raises(SteamFormatError):
+        parse_group_page(html, FETCHED_AT)

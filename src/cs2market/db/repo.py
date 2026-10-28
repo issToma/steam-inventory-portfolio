@@ -21,6 +21,8 @@ from cs2market.db.tables import FetchJob, FxRate, Item, PricePoint, WatchlistEnt
 
 JOB_RESOLVE = "resolve"
 JOB_HISTORY = "history"
+# One market group page holds the history of every variant in the group (docs/SPEC.md, S6).
+JOB_GROUP = "group"
 JOB_FX = "fx"
 
 # asyncpg allows 32767 bind parameters per statement; a price point uses 6.
@@ -62,7 +64,7 @@ async def add_to_watchlist(
     await session.execute(insert(WatchlistEntry).values(item_id=item.id).on_conflict_do_nothing())
     if item.item_type is None:
         await ensure_job(session, JOB_RESOLVE, market_hash_name)
-    await ensure_job(session, JOB_HISTORY, market_hash_name)
+    await ensure_history_job(session, item)
     return item
 
 
@@ -77,6 +79,22 @@ async def remove_from_watchlist(session: AsyncSession, item_id: int) -> None:
             FetchJob.target == item.market_hash_name,
         )
     )
+
+
+async def ensure_history_job(session: AsyncSession, item: Item) -> None:
+    """Queue history collection: per group when the group is known, per item otherwise."""
+    if item.bucket_group_id:
+        await ensure_job(session, JOB_GROUP, item.bucket_group_id)
+        await delete_job(session, JOB_HISTORY, item.market_hash_name)
+    else:
+        await ensure_job(session, JOB_HISTORY, item.market_hash_name)
+
+
+async def watched_items_in_group(session: AsyncSession, bucket_group_id: str) -> list[Item]:
+    result = await session.scalars(
+        select(Item).join(WatchlistEntry).where(Item.bucket_group_id == bucket_group_id)
+    )
+    return list(result)
 
 
 async def is_watched(session: AsyncSession, item_id: int) -> bool:
@@ -230,16 +248,23 @@ async def delete_job(session: AsyncSession, kind: str, target: str) -> None:
     await session.execute(delete(FetchJob).where(FetchJob.kind == kind, FetchJob.target == target))
 
 
-async def jobs_for(session: AsyncSession, targets: list[str]) -> dict[str, FetchJob]:
-    """Per item name, the job that best explains its status: a failing one if any."""
+async def jobs_for(session: AsyncSession, items: list[Item]) -> dict[int, FetchJob]:
+    """Per item id, the job that best explains its status: a failing one if any."""
+    by_target: dict[str, list[Item]] = {}
+    for item in items:
+        by_target.setdefault(item.market_hash_name, []).append(item)
+        if item.bucket_group_id:
+            by_target.setdefault(item.bucket_group_id, []).append(item)
     result = await session.scalars(
         select(FetchJob).where(
-            FetchJob.kind.in_([JOB_RESOLVE, JOB_HISTORY]), FetchJob.target.in_(targets)
+            FetchJob.kind.in_([JOB_RESOLVE, JOB_HISTORY, JOB_GROUP]),
+            FetchJob.target.in_(list(by_target)),
         )
     )
-    jobs: dict[str, FetchJob] = {}
+    jobs: dict[int, FetchJob] = {}
     for job in result:
-        current = jobs.get(job.target)
-        if current is None or (job.status == "error" and current.status != "error"):
-            jobs[job.target] = job
+        for item in by_target[job.target]:
+            current = jobs.get(item.id)
+            if current is None or (job.status == "error" and current.status != "error"):
+                jobs[item.id] = job
     return jobs

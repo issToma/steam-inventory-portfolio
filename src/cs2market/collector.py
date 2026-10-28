@@ -73,6 +73,7 @@ class Collector:
         handlers = {
             repo.JOB_RESOLVE: self._resolve,
             repo.JOB_HISTORY: self._history,
+            repo.JOB_GROUP: self._group,
             repo.JOB_FX: self._fx,
         }
         handler = handlers.get(job.kind)
@@ -117,7 +118,7 @@ class Collector:
                     item, match, parse_item_traits(job.target, match.item_type)
                 )
                 if await repo.is_watched(session, item.id):
-                    await repo.ensure_job(session, repo.JOB_HISTORY, job.target)
+                    await repo.ensure_history_job(session, item)
             await session.commit()
         return None
 
@@ -126,6 +127,11 @@ class Collector:
             item = await repo.get_item_by_name(session, job.target)
             if item is None or not await repo.is_watched(session, item.id):
                 return None
+            if item.bucket_group_id:
+                # Older per-item job: hand over to the group job, which is cheaper.
+                await repo.ensure_history_job(session, item)
+                await session.commit()
+                return None
         history = await self._market.price_history(job.target)
         async with self._sessions() as session:
             await repo.save_history(session, item.id, history)
@@ -133,6 +139,34 @@ class Collector:
                 await repo.ensure_job(session, repo.JOB_FX, str(history.currency))
             await session.commit()
         log.info("stored %d points for %r", len(history.points), job.target)
+        return self._now() + timedelta(minutes=self._settings.history_refresh_minutes)
+
+    async def _group(self, job: FetchJob) -> datetime | None:
+        async with self._sessions() as session:
+            items = await repo.watched_items_in_group(session, job.target)
+        if not items:
+            return None
+        variants = await self._market.group_page(job.target)
+        currencies = set()
+        for item in items:
+            variant = variants.get(item.market_hash_name)
+            history = variant.history if variant else None
+            if history is None:
+                # Not embedded in the page: fall back to the per-item endpoint.
+                history = await self._market.price_history(item.market_hash_name)
+            async with self._sessions() as session:
+                await repo.save_history(session, item.id, history)
+                if variant is not None and variant.collection:
+                    stored = await repo.get_item(session, item.id)
+                    if stored is not None:
+                        stored.collection = variant.collection
+                await session.commit()
+            currencies.add(history.currency)
+        async with self._sessions() as session:
+            for currency in currencies - {USD}:
+                await repo.ensure_job(session, repo.JOB_FX, str(currency))
+            await session.commit()
+        log.info("stored history for %d item(s) from group %s", len(items), job.target)
         return self._now() + timedelta(minutes=self._settings.history_refresh_minutes)
 
     async def _fx(self, job: FetchJob) -> datetime | None:

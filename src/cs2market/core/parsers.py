@@ -4,6 +4,7 @@ Every parser raises SteamFormatError when the response does not look like what w
 during the 2026-10-26 probe, so a silent Steam change fails loudly instead of storing junk.
 """
 
+import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -75,7 +76,10 @@ def parse_price_history(payload: Any, fetched_at: datetime) -> PriceHistory:
     A point is hourly when it is inside Steam's hourly window or not aligned to midnight UTC.
     """
     source = "QueryPriceHistory"
-    data = _require(payload, "data", dict, source)
+    return _parse_history_data(_require(payload, "data", dict, source), fetched_at, source)
+
+
+def _parse_history_data(data: Any, fetched_at: datetime, source: str) -> PriceHistory:
     currency = _require(data, "ecurrency", int, source)
     raw_points = _require(data, "prices", list, source)
 
@@ -96,6 +100,76 @@ def parse_price_history(payload: Any, fetched_at: datetime) -> PriceHistory:
             )
         )
     return PriceHistory(currency=currency, points=points)
+
+
+@dataclass(frozen=True)
+class GroupVariant:
+    """One variant (wear, StatTrak, Souvenir) found on a market group page."""
+
+    market_hash_name: str
+    item_type: str | None
+    classid: str | None
+    icon_url: str | None
+    collection: str | None
+    history: PriceHistory | None
+
+
+_SSR_DATA = re.compile(r'<script[^>]*\bid="valve-ssr-data"[^>]*>(.*?)</script>', re.S)
+
+
+def parse_group_page(html: str, fetched_at: datetime) -> dict[str, GroupVariant]:
+    """Parse /market/listings/730/<bucket_group_id>.
+
+    The page is rendered on the server and embeds its react-query cache as JSON. Among
+    other things it holds the price history and description of every variant in the group.
+    """
+    source = "group page"
+    match = _SSR_DATA.search(html)
+    if match is None:
+        raise SteamFormatError(f"{source}: no valve-ssr-data block")
+    try:
+        ssr = json.loads(match.group(1))
+        query_data = json.loads(
+            _require(_require(ssr, "renderContext", dict, source), "queryData", str, source)
+        )
+    except ValueError as exc:
+        raise SteamFormatError(f"{source}: embedded data is not JSON") from exc
+
+    histories: dict[str, PriceHistory] = {}
+    descriptions: dict[str, dict[str, Any]] = {}
+    for query in _require(query_data, "queries", list, source):
+        key = query.get("queryKey") if isinstance(query, dict) else None
+        if not (isinstance(key, list) and len(key) == 4 and key[0] == "market"):
+            continue
+        data = (query.get("state") or {}).get("data")
+        name = key[3]
+        if key[1] == "pricehistory" and isinstance(data, dict):
+            histories[name] = _parse_history_data(data, fetched_at, source)
+        elif key[1] == "description" and isinstance(data, dict):
+            descriptions[name] = data
+    if not histories:
+        raise SteamFormatError(f"{source}: no price history in the embedded data")
+
+    variants = {}
+    for name in histories.keys() | descriptions.keys():
+        description = descriptions.get(name, {})
+        collection = next(
+            (
+                d.get("value")
+                for d in description.get("descriptions", [])
+                if isinstance(d, dict) and d.get("name") == "itemset_name"
+            ),
+            None,
+        )
+        variants[name] = GroupVariant(
+            market_hash_name=name,
+            item_type=description.get("type"),
+            classid=description.get("classid"),
+            icon_url=description.get("icon_url"),
+            collection=collection,
+            history=histories.get(name),
+        )
+    return variants
 
 
 def parse_price_overview(payload: Any) -> PriceOverview:
