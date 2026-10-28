@@ -157,3 +157,23 @@ def recent_trend(frame: pd.DataFrame, days: int = 7, bucket: str = "6h") -> list
     series = hourly if not hourly.empty else daily_series(frame)["price"]
     recent = series[series.index >= series.index[-1] - timedelta(days=days)]
     return [float(v) for v in recent.resample(bucket).mean().dropna()]
+
+
+def change_over(frame: pd.DataFrame, period: timedelta | None) -> float | None:
+    """Relative price change over the period up to the latest point; None = all history.
+
+    When the history is shorter than the period, the change counts from its first point.
+    """
+    if frame.empty:
+        return None
+    daily = daily_series(frame)
+    hourly = hourly_series(frame)
+    series = daily["price"]
+    if not hourly.empty:
+        series = pd.concat([series[series.index < hourly.index[0]], hourly["price"]])
+    if period is not None:
+        before = series[: series.index[-1] - period]
+        if not before.empty:
+            series = series[before.index[-1] :]
+    first = series.iloc[0]
+    return float(series.iloc[-1] / first - 1) if first else None

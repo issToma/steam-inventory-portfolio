@@ -188,8 +188,13 @@ RU: dict[str, str] = {
     ),
     "Add to portfolio": "В портфель",
     "Add item": "Добавить предмет",
-    "Top gainers, 24h": "Лидеры роста, 24ч",
-    "Top losers, 24h": "Лидеры падения, 24ч",
+    "Top gainers, {period}": "Лидеры роста, {period}",
+    "Top losers, {period}": "Лидеры падения, {period}",
+    "all time": "за всё время",
+    "Portfolio value": "Стоимость портфеля",
+    "Change": "Изменение",
+    "Highest": "Максимум",
+    "Lowest": "Минимум",
     "Your Steam inventory could not be imported. See Settings for details.": (
         "Не удалось импортировать инвентарь Steam. Подробности — в настройках."
     ),

@@ -1,11 +1,12 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import pandas as pd
 import pytest
 
 from cs2market.analysis import to_frame
 from cs2market.db.repo import StoredPoint
-from cs2market.portfolio import PositionInput, value_positions
+from cs2market.portfolio import PositionInput, period_stats, value_positions
 
 DAY = datetime(2026, 10, 1, tzinfo=UTC)
 
@@ -63,3 +64,24 @@ def test_value_history_uses_todays_quantities() -> None:
     portfolio = value_positions([position(1, [10, 20, 30], quantity=2), position(2, [0, 5], 1)])
 
     assert list(portfolio.value_history) == [20, 45, 65]
+
+
+def test_period_stats() -> None:
+    history = value_positions([position(1, [10, 30, 5, 20], quantity=1)]).value_history
+
+    stats = period_stats(history, timedelta(days=2))
+    everything = period_stats(history, None)
+
+    assert stats is not None
+    assert (stats.start, stats.end, stats.change) == (30, 20, -10)
+    assert (stats.high, stats.low) == (30, 5)
+    assert stats.low_on == pd.Timestamp(DAY + timedelta(days=2))
+    assert everything is not None
+    assert everything.change_pct == pytest.approx(1.0)
+
+
+def test_position_change_per_period() -> None:
+    (pos,) = value_positions([position(1, [10, 20, 40], quantity=1)]).positions
+
+    assert pos.change("7D") == pytest.approx(3.0)
+    assert pos.change("All") == pytest.approx(3.0)

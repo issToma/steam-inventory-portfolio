@@ -1,4 +1,3 @@
-from datetime import timedelta
 from typing import Any
 
 import pandas as pd
@@ -7,7 +6,14 @@ from nicegui import ui
 from cs2market.core.parsers import SearchResult
 from cs2market.db import repo
 from cs2market.i18n import tr
-from cs2market.portfolio import Portfolio, Position, load_portfolio
+from cs2market.portfolio import (
+    PERIODS,
+    PeriodStats,
+    Portfolio,
+    Position,
+    load_portfolio,
+    period_stats,
+)
 from cs2market.runtime import runtime
 from cs2market.ui.common import (
     NAME_CELL_SLOT,
@@ -25,11 +31,9 @@ from cs2market.ui.layout import echart_theme, page_frame
 from cs2market.ui.positions import DELETE, PositionForm, add_position, position_dialog
 from cs2market.ui.search_box import search_box
 
-RANGES = {"30D": timedelta(days=30), "1Y": timedelta(days=365), "All": None}
 
-
-def range_options() -> dict[str, str]:
-    return {key: tr(key) if key == "All" else key for key in RANGES}
+def period_options() -> dict[str, str]:
+    return {key: tr(key) if key == "All" else key for key in PERIODS}
 
 
 def columns(*, with_pnl: bool) -> list[dict[str, Any]]:
@@ -82,8 +86,8 @@ def _row(p: Position) -> dict[str, Any]:
     }
 
 
-def _value_chart(history: pd.Series, range_key: str) -> dict[str, Any]:
-    period = RANGES[range_key]
+def _value_chart(history: pd.Series, period_key: str) -> dict[str, Any]:
+    period = PERIODS[period_key]
     if period is not None and not history.empty:
         history = history[history.index >= history.index[-1] - period]
     index = pd.DatetimeIndex(history.index)
@@ -122,12 +126,18 @@ def register() -> None:
 
             banner = ui.column().classes("w-full")
 
-            # --- Totals, movers and chart -------------------------------------------------
+            # --- Current totals ---------------------------------------------------------
             totals = ui.row().classes("gap-3")
+
+            # --- One period for the statistics, the chart and the movers -----------------
+            with ui.card().classes("w-full"):
+                with ui.row().classes("w-full items-center"):
+                    ui.label(tr("Portfolio value")).classes("text-subtitle1")
+                    ui.space()
+                    period_toggle = ui.toggle(period_options(), value="30D").props("dense")
+                stats = ui.row().classes("gap-3")
+                chart = ui.echart({}, theme=echart_theme()).classes("w-full h-72")
             movers = ui.row().classes("w-full gap-3")
-            with ui.row().classes("items-center"):
-                range_toggle = ui.toggle(range_options(), value="1Y")
-            chart = ui.echart({}, theme=echart_theme()).classes("w-full h-72")
 
             # --- Positions ---------------------------------------------------------------
             ui.label(tr("Positions")).classes("text-h6")
@@ -175,15 +185,17 @@ def register() -> None:
                 table.rows = [_row(p) for p in portfolio.positions]
                 table.update()
                 redraw()
-                _movers(movers, portfolio)
                 await _banner(banner)
 
             def redraw() -> None:
                 if portfolio is None:
                     return
+                period = period_toggle.value
                 chart.options.clear()
-                chart.options.update(_value_chart(portfolio.value_history, range_toggle.value))
+                chart.options.update(_value_chart(portfolio.value_history, period))
                 chart.update()
+                _period_stats(stats, period_stats(portfolio.value_history, PERIODS[period]))
+                _movers(movers, portfolio, period)
 
             async def add_manual(result: SearchResult) -> bool:
                 if not await add_position(result.market_hash_name, result):
@@ -245,7 +257,7 @@ def register() -> None:
                 dialog.open()
 
             table.on("edit", edit)
-            range_toggle.on_value_change(redraw)
+            period_toggle.on_value_change(redraw)
             await refresh()
             ui.timer(60, refresh)
 
@@ -258,29 +270,41 @@ def _stat(label: str, value: str, color: str = "", hint: str = "") -> None:
             ui.label(hint).classes("text-caption text-muted")
 
 
-def _movers(container: ui.row, portfolio: Portfolio) -> None:
-    """Biggest 24h gainers and losers among the positions."""
+def _period_stats(container: ui.row, stats: PeriodStats | None) -> None:
     container.clear()
-    changed = [p for p in portfolio.positions if p.change_24h]
-    gainers = sorted((p for p in changed if (p.change_24h or 0) > 0), key=_change, reverse=True)
-    losers = sorted((p for p in changed if (p.change_24h or 0) < 0), key=_change)
+    if stats is None:
+        return
     with container:
-        for title, positions in (
-            (tr("Top gainers, 24h"), gainers),
-            (tr("Top losers, 24h"), losers),
+        _stat(
+            tr("Change"),
+            f"{'+' if stats.change >= 0 else '-'}${abs(stats.change):,.2f}"
+            + (f" ({stats.change_pct:+.1%})" if stats.change_pct is not None else ""),
+            pct_color(stats.change),
+        )
+        _stat(tr("Highest"), fmt_usd(stats.high), "", f"{stats.high_on:%Y-%m-%d}")
+        _stat(tr("Lowest"), fmt_usd(stats.low), "", f"{stats.low_on:%Y-%m-%d}")
+
+
+def _movers(container: ui.row, portfolio: Portfolio, period: str) -> None:
+    """Biggest gainers and losers among the positions over the selected period."""
+    container.clear()
+    changed = [(p, p.change(period)) for p in portfolio.positions]
+    gainers = sorted(((p, c) for p, c in changed if c and c > 0), key=lambda x: -x[1])
+    losers = sorted(((p, c) for p, c in changed if c and c < 0), key=lambda x: x[1])
+    label = tr("all time") if period == "All" else period
+    with container:
+        for title, entries in (
+            (tr("Top gainers, {period}", period=label), gainers),
+            (tr("Top losers, {period}", period=label), losers),
         ):
             with ui.card().classes("grow min-w-72"):
                 ui.label(title).classes("text-caption text-muted")
-                if not positions:
+                if not entries:
                     ui.label("—").classes("text-muted")
-                for p in positions[:3]:
+                for p, change in entries[:3]:
                     with ui.row().classes("w-full no-wrap items-center gap-2"):
                         ui.link(p.name, f"/item/{p.item_id}").classes("plain-link grow truncate")
-                        ui.label(fmt_pct(p.change_24h)).classes(pct_color(p.change_24h))
-
-
-def _change(position: Position) -> float:
-    return position.change_24h or 0.0
+                        ui.label(fmt_pct(change)).classes(pct_color(change))
 
 
 async def _banner(container: ui.column) -> None:

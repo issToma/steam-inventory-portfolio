@@ -2,12 +2,14 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import timedelta
 from decimal import Decimal
 
 import pandas as pd
 
 from cs2market.analysis import (
     MissingRateError,
+    change_over,
     compute_metrics,
     daily_series,
     recent_trend,
@@ -16,6 +18,48 @@ from cs2market.analysis import (
 from cs2market.core.fees import seller_proceeds
 from cs2market.db import repo
 from cs2market.db.session import SessionMaker
+
+# Periods offered for the portfolio's statistics, movers and chart; None = all history.
+PERIODS: dict[str, timedelta | None] = {
+    "7D": timedelta(days=7),
+    "30D": timedelta(days=30),
+    "1Y": timedelta(days=365),
+    "All": None,
+}
+
+
+@dataclass(frozen=True)
+class PeriodStats:
+    start: float
+    end: float
+    change: float
+    change_pct: float | None
+    high: float
+    high_on: pd.Timestamp
+    low: float
+    low_on: pd.Timestamp
+
+
+def period_stats(history: pd.Series, period: timedelta | None) -> PeriodStats | None:
+    """How the portfolio value moved over the period, from the daily value history."""
+    if period is not None and not history.empty:
+        history = history[history.index >= history.index[-1] - period]
+    history = history[history > 0]
+    if history.empty:
+        return None
+    start, end = float(history.iloc[0]), float(history.iloc[-1])
+    days = pd.DatetimeIndex(history.index)
+    values = history.to_numpy()
+    return PeriodStats(
+        start=start,
+        end=end,
+        change=end - start,
+        change_pct=end / start - 1 if start else None,
+        high=float(history.max()),
+        high_on=days[int(values.argmax())],
+        low=float(history.min()),
+        low_on=days[int(values.argmin())],
+    )
 
 
 @dataclass(frozen=True)
@@ -54,6 +98,11 @@ class Position:
     rarity: str | None = None
     quality: str | None = None
     trend: tuple[float, ...] = ()
+    # Price change per period key of PERIODS.
+    changes: tuple[tuple[str, float | None], ...] = ()
+
+    def change(self, period: str) -> float | None:
+        return dict(self.changes).get(period)
 
 
 @dataclass(frozen=True)
@@ -109,6 +158,7 @@ def value_positions(inputs: Sequence[PositionInput]) -> Portfolio:
             rarity=p.rarity,
             quality=p.quality,
             trend=tuple(recent_trend(p.history)),
+            changes=tuple((key, change_over(p.history, span)) for key, span in PERIODS.items()),
         )
         for p, price, value, proceeds, cost, pnl, metrics in rows
     ]
