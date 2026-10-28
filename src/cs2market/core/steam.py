@@ -136,6 +136,9 @@ EXTERIOR_NAMES: dict[Exterior, str] = {
 }
 
 
+# Group pages are rendered on the server and can take tens of seconds.
+GROUP_PAGE_TIMEOUT = 120.0
+
 # 2000 is the largest page Steam serves; bigger inventories come in several pages.
 INVENTORY_PAGE_SIZE = 2000
 INVENTORY_MAX_PAGES = 20
@@ -163,7 +166,9 @@ class SteamMarket:
 
     async def group_page(self, bucket_group_id: str) -> dict[str, GroupVariant]:
         """History and descriptions of every variant in a market group, in one request."""
-        html = await self._client.get_text(f"/market/listings/{self._appid}/{bucket_group_id}")
+        html = await self._client.get_text(
+            f"/market/listings/{self._appid}/{bucket_group_id}", request_timeout=GROUP_PAGE_TIMEOUT
+        )
         return parse_group_page(html, fetched_at=datetime.now(UTC))
 
     async def inventory(self, steam_id64: str) -> list[InventoryItem]:

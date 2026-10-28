@@ -38,12 +38,18 @@ class FakeResponse:
 
 
 class FakeSession:
+    timeout = None
+
     def __init__(self, responses: list[FakeResponse | Exception]) -> None:
         self.responses = responses
         self.calls: list[tuple[str, Any, Any]] = []
 
     def get(
-        self, url: str, params: Mapping[str, str] | None = None, headers: Any = None
+        self,
+        url: str,
+        params: Mapping[str, str] | None = None,
+        headers: Any = None,
+        **kwargs: Any,
     ) -> FakeResponse:
         self.calls.append((url, params, headers))
         response = self.responses.pop(0)

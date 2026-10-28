@@ -118,9 +118,12 @@ class SteamClient:
         *,
         priority: bool = False,
         max_wait: float | None = None,
+        request_timeout: float | None = None,
     ) -> str:
         """Fetch an HTML or XML page (market pages embed their data in the HTML)."""
-        body = await self.get_bytes(path, params, priority=priority, max_wait=max_wait)
+        body = await self.get_bytes(
+            path, params, priority=priority, max_wait=max_wait, request_timeout=request_timeout
+        )
         return body.decode("utf-8", errors="replace")
 
     async def get_bytes(
@@ -131,7 +134,9 @@ class SteamClient:
         *,
         priority: bool = False,
         max_wait: float | None = None,
+        request_timeout: float | None = None,
     ) -> bytes:
+        """With `request_timeout`, override the session's total timeout for this request."""
         async for attempt in AsyncRetrying(
             retry=retry_if_exception_type(_TransientError),
             stop=stop_after_attempt(3),
@@ -141,7 +146,7 @@ class SteamClient:
         ):
             with attempt:
                 async with self._turn(priority):
-                    return await self._get_once(path, params, headers, max_wait)
+                    return await self._get_once(path, params, headers, max_wait, request_timeout)
         raise AssertionError("unreachable")
 
     @contextlib.asynccontextmanager
@@ -170,6 +175,7 @@ class SteamClient:
         params: Params | None,
         headers: Mapping[str, str] | None,
         max_wait: float | None,
+        request_timeout: float | None = None,
     ) -> bytes:
         delay = self._next_allowed - self._clock()
         if max_wait is not None and delay > max_wait:
@@ -177,8 +183,13 @@ class SteamClient:
         if delay > 0:
             await self._sleep(delay)
         try:
+            timeout = (
+                self._session.timeout
+                if request_timeout is None
+                else aiohttp.ClientTimeout(total=request_timeout)
+            )
             async with self._session.get(
-                self._base_url + path, params=params, headers=headers
+                self._base_url + path, params=params, headers=headers, timeout=timeout
             ) as response:
                 status = response.status
                 body = await response.read()

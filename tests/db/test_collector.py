@@ -1,8 +1,15 @@
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any, cast
 
 from cs2market.collector import Collector
-from cs2market.core.parsers import InventoryItem
+from cs2market.core.parsers import (
+    GroupVariant,
+    HistoryPoint,
+    InventoryItem,
+    PriceHistory,
+    SearchResult,
+)
 from cs2market.core.steam import InventoryPrivateError, SteamMarket
 from cs2market.db import repo
 from cs2market.db.session import SessionMaker
@@ -72,3 +79,62 @@ async def test_switching_accounts_drops_the_old_job(sessions: SessionMaker) -> N
         await session.commit()
         assert await repo.get_job(session, repo.JOB_INVENTORY, STEAM_ID) is None
         assert await repo.get_job(session, repo.JOB_INVENTORY, "76561198000000001") is not None
+
+
+class HistoryMarket:
+    """Serves price history either per item or as a group page."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    @staticmethod
+    def _history() -> PriceHistory:
+        return PriceHistory(1, [HistoryPoint(NOW, "hour", Decimal("50"), 30)])
+
+    async def price_history(self, name: str) -> PriceHistory:
+        self.calls.append(f"item:{name}")
+        return self._history()
+
+    async def group_page(self, group: str) -> dict[str, GroupVariant]:
+        self.calls.append(f"group:{group}")
+        names = ["AK-47 | Redline (Field-Tested)", "AK-47 | Redline (Minimal Wear)"]
+        return {
+            n: GroupVariant(
+                n, "Classified Rifle", None, None, "The Phoenix Collection", self._history()
+            )
+            for n in names
+        }
+
+
+async def run_group_job(sessions: SessionMaker, market: HistoryMarket, names: list[str]) -> None:
+    async with sessions() as session:
+        for name in names:
+            found = SearchResult(name, "Classified Rifle", "G1", None, None, None, None)
+            await repo.add_manual_holding(session, name, quantity=1, found=found)
+        await session.commit()
+        job = await repo.get_job(session, repo.JOB_GROUP, "G1")
+    assert job is not None
+    await collector(sessions, market)._run(job)
+
+
+async def test_single_variant_group_uses_the_light_endpoint(sessions: SessionMaker) -> None:
+    market = HistoryMarket()
+
+    await run_group_job(sessions, market, ["AK-47 | Redline (Field-Tested)"])
+
+    assert market.calls == ["item:AK-47 | Redline (Field-Tested)"]
+    async with sessions() as session:
+        job = await repo.get_job(session, repo.JOB_GROUP, "G1")
+    assert job is not None
+    # $50 held, 1 sale a day: valuable and liquid enough for the hourly refresh.
+    assert job.run_after == NOW.replace(hour=13)
+
+
+async def test_several_variants_share_one_group_page(sessions: SessionMaker) -> None:
+    market = HistoryMarket()
+
+    await run_group_job(
+        sessions, market, ["AK-47 | Redline (Field-Tested)", "AK-47 | Redline (Minimal Wear)"]
+    )
+
+    assert market.calls == ["group:G1"]

@@ -155,6 +155,23 @@ class Collector:
             items = await repo.tracked_items_in_group(session, job.target)
         if not items:
             return None
+        if len(items) == 1:
+            # One tracked variant: the per-item JSON is the same single request as the group
+            # page, but answers in seconds instead of tens of seconds.
+            (item,) = items
+            single = await self._market.price_history(item.market_hash_name)
+            async with self._sessions() as session:
+                await repo.save_history(session, item.id, single)
+                if single.currency != USD:
+                    await repo.ensure_job(session, repo.JOB_FX, str(single.currency))
+                await session.commit()
+            next_run = await self._next_refresh([(item.id, single)])
+            log.info(
+                "stored history for %r; next refresh %s",
+                item.market_hash_name,
+                f"{next_run:%Y-%m-%d %H:%M} UTC",
+            )
+            return next_run
         variants = await self._market.group_page(job.target)
         async with self._sessions() as session:
             # Every variant goes to the catalog, so local search knows all wears at once.

@@ -7,7 +7,7 @@ from itertools import batched
 from typing import Any, cast
 
 from sqlalchemy import ColumnElement, and_, case, delete, func, or_, select, text, update
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.dialects.postgresql import distinct_on, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cs2market.core.parsers import (
@@ -220,7 +220,7 @@ async def latest_fx(session: AsyncSession) -> dict[int, Decimal]:
     """The most recent Steam rate to USD for every currency we have seen."""
     result = await session.execute(
         select(FxRate.currency, FxRate.usd_per_unit)
-        .distinct(FxRate.currency)
+        .ext(distinct_on(FxRate.currency))
         .order_by(FxRate.currency, FxRate.day.desc())
     )
     return {currency: rate for currency, rate in result}
