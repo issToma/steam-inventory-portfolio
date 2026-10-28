@@ -10,8 +10,10 @@ from cs2market.core.parsers import (
     InventoryItem,
     PriceHistory,
     PriceOverview,
+    ProfileRef,
     SearchResult,
     SteamFormatError,
+    SteamProfile,
     parse_group_page,
     parse_inventory,
     parse_price_history,
@@ -194,12 +196,13 @@ class SteamMarket:
             start = page.next_start
         raise SteamFormatError(f"inventory: more than {INVENTORY_MAX_PAGES} pages")
 
-    async def resolve_vanity(
-        self, vanity: str, *, priority: bool = False, max_wait: float | None = None
-    ) -> str:
-        """SteamID64 behind a custom profile URL (steamcommunity.com/id/<vanity>)."""
+    async def profile(
+        self, ref: ProfileRef, *, priority: bool = False, max_wait: float | None = None
+    ) -> SteamProfile:
+        """Name, avatar and privacy of a profile, by SteamID64 or custom URL name."""
+        path = f"/profiles/{ref.steam_id64}/" if ref.steam_id64 else f"/id/{ref.vanity}/"
         xml = await self._client.get_text(
-            f"/id/{vanity}/", params=[("xml", "1")], priority=priority, max_wait=max_wait
+            path, params=[("xml", "1")], priority=priority, max_wait=max_wait
         )
         return parse_profile_xml(xml)
 

@@ -234,7 +234,43 @@ def test_profile_input_rejects_garbage(text: str) -> None:
         parse_profile_input(text)
 
 
-def test_profile_xml() -> None:
-    xml = "<profile><steamID64>76561198000000042</steamID64><steamID>x</steamID></profile>"
+PROFILE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<profile>
+	<steamID64>76561198000000001</steamID64>
+	<steamID><![CDATA[Test Player]]></steamID>
+	<onlineState>offline</onlineState>
+	<privacyState>{privacy}</privacyState>
+	<visibilityState>3</visibilityState>
+	<avatarIcon><![CDATA[https://avatars.fastly.steamstatic.com/abc.jpg]]></avatarIcon>
+	<avatarMedium><![CDATA[https://avatars.fastly.steamstatic.com/abc_medium.jpg]]></avatarMedium>
+	<customURL><![CDATA[{custom}]]></customURL>
+</profile>"""
 
-    assert parse_profile_xml(xml) == "76561198000000042"
+
+def test_profile_xml() -> None:
+    profile = parse_profile_xml(PROFILE_XML.format(privacy="public", custom=""))
+
+    assert profile.steam_id64 == "76561198000000001"
+    assert profile.name == "Test Player"
+    assert profile.avatar_url == "https://avatars.fastly.steamstatic.com/abc_medium.jpg"
+    assert profile.profile_url == "https://steamcommunity.com/profiles/76561198000000001/"
+    assert profile.privacy == "public"
+
+
+def test_profile_xml_with_custom_url_and_private() -> None:
+    profile = parse_profile_xml(PROFILE_XML.format(privacy="private", custom="tester"))
+
+    assert profile.profile_url == "https://steamcommunity.com/id/tester/"
+    assert profile.privacy == "private"
+
+
+@pytest.mark.parametrize(
+    "xml",
+    [
+        "not xml",
+        "<response><error><![CDATA[The specified profile could not be found.]]></error></response>",
+    ],
+)
+def test_profile_xml_errors(xml: str) -> None:
+    with pytest.raises(SteamFormatError):
+        parse_profile_xml(xml)

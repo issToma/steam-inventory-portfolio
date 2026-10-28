@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 from urllib.parse import unquote, urlparse
+from xml.etree import ElementTree
 
 from cs2market.core.currency import parse_price_text
 
@@ -358,9 +359,39 @@ def parse_profile_input(text: str) -> ProfileRef:
     raise ValueError("expected a SteamID64 or a steamcommunity.com profile link")
 
 
-def parse_profile_xml(xml: str) -> str:
-    """Extract the SteamID64 from /id/<name>/?xml=1."""
-    match = re.search(r"<steamID64>(\d+)</steamID64>", xml)
-    if match is None:
-        raise SteamFormatError("profile xml: no steamID64 (is the custom URL correct?)")
-    return match.group(1)
+@dataclass(frozen=True)
+class SteamProfile:
+    steam_id64: str
+    name: str
+    avatar_url: str | None
+    profile_url: str
+    # "public", "friendsonly" or "private". A non-public profile hides its inventory too.
+    privacy: str
+
+
+def parse_profile_xml(xml: str) -> SteamProfile:
+    """Parse /profiles/<id>/?xml=1 or /id/<name>/?xml=1 (served without logging in)."""
+    source = "profile xml"
+    try:
+        root = ElementTree.fromstring(xml)
+    except ElementTree.ParseError as exc:
+        raise SteamFormatError(f"{source}: not XML") from exc
+
+    def field(tag: str) -> str | None:
+        value = root.findtext(tag)
+        return value.strip() if value and value.strip() else None
+
+    steam_id = field("steamID64")
+    if root.tag != "profile" or steam_id is None:
+        # Steam answers an unknown custom URL with <response><error>...</error></response>.
+        raise SteamFormatError(f"{source}: {field('error') or 'no steamID64'}")
+    custom_url = field("customURL")
+    return SteamProfile(
+        steam_id64=steam_id,
+        name=field("steamID") or steam_id,
+        avatar_url=field("avatarMedium"),
+        profile_url=f"https://steamcommunity.com/id/{custom_url}/"
+        if custom_url
+        else f"https://steamcommunity.com/profiles/{steam_id}/",
+        privacy=field("privacyState") or "private",
+    )

@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from cs2market import scheduling
 from cs2market.core.currency import USD
 from cs2market.core.http import SteamError, SteamRateLimitedError
-from cs2market.core.parsers import PriceHistory, SteamFormatError, parse_item_traits
+from cs2market.core.parsers import PriceHistory, ProfileRef, SteamFormatError, parse_item_traits
 from cs2market.core.steam import InventoryPrivateError, SteamMarket
 from cs2market.db import repo
 from cs2market.db.session import SessionMaker
@@ -23,6 +23,8 @@ RETRY_BASE = timedelta(minutes=5)
 RETRY_MAX = timedelta(hours=6)
 NOT_FOUND_RETRY = timedelta(days=7)
 PRIVATE_INVENTORY_RETRY = timedelta(hours=1)
+# Name and avatar change rarely; refresh them along with one inventory sync a day.
+PROFILE_REFRESH = timedelta(days=1)
 
 
 class JobFailedError(Exception):
@@ -239,11 +241,24 @@ class Collector:
 
     async def _inventory(self, job: FetchJob) -> datetime | None:
         async with self._sessions() as session:
-            if await repo.get_setting(session, repo.SETTING_STEAM_ID) != job.target:
-                return None  # the user switched to another account
+            account = await repo.get_account(session)
+        if account is None or account.steam_id64 != job.target:
+            return None  # the user switched to another account or disconnected
+        fetched = account.profile_fetched_at
+        stale = fetched is None or self._now() - fetched >= PROFILE_REFRESH
+        # A private profile is re-checked every attempt, so the import starts as soon as the
+        # user opens their inventory.
+        if stale or (account.profile is not None and account.profile.privacy != "public"):
+            profile = await self._market.profile(ProfileRef(steam_id64=job.target))
+            async with self._sessions() as session:
+                await repo.save_profile(session, profile, self._now())
+                await session.commit()
+            if profile.privacy != "public":
+                raise InventoryPrivateError(job.target)
         items = await self._market.inventory(job.target)
         async with self._sessions() as session:
             count = await repo.sync_inventory(session, items)
+            await repo.set_setting(session, repo.SETTING_INVENTORY_POSITIONS, str(count))
             await session.commit()
         log.info("inventory: %d item(s), %d sellable position(s)", len(items), count)
         return self._now() + timedelta(hours=self._settings.inventory_refresh_hours)

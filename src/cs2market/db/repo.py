@@ -1,6 +1,7 @@
 """Database access. Functions take a session and leave committing to the caller."""
 
-from dataclasses import dataclass
+import json
+from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from itertools import batched
@@ -16,6 +17,7 @@ from cs2market.core.parsers import (
     PriceHistory,
     Resolution,
     SearchResult,
+    SteamProfile,
     parse_item_traits,
 )
 from cs2market.db.tables import (
@@ -392,6 +394,9 @@ SOURCE_INVENTORY = "inventory"
 SOURCE_MANUAL = "manual"
 
 SETTING_STEAM_ID = "steam_id64"
+# Profile details shown on the portfolio page, refreshed with the inventory.
+SETTING_PROFILE = "steam_profile"
+SETTING_INVENTORY_POSITIONS = "inventory_positions"
 
 
 async def add_manual_holding(
@@ -571,6 +576,8 @@ async def set_inventory_owner(session: AsyncSession, steam_id64: str | None) -> 
     previous = await get_setting(session, SETTING_STEAM_ID)
     if previous and previous != steam_id64:
         await delete_job(session, JOB_INVENTORY, previous)
+        await set_setting(session, SETTING_PROFILE, None)
+        await set_setting(session, SETTING_INVENTORY_POSITIONS, None)
     await set_setting(session, SETTING_STEAM_ID, steam_id64)
     if steam_id64:
         await run_job_now(session, JOB_INVENTORY, steam_id64)
@@ -586,3 +593,42 @@ async def held_quantities(session: AsyncSession, item_ids: list[int]) -> dict[in
         .group_by(Holding.item_id)
     )
     return {item_id: int(quantity) for item_id, quantity in result}
+
+
+@dataclass(frozen=True)
+class Account:
+    """The connected Steam account as the portfolio page shows it."""
+
+    steam_id64: str
+    profile: SteamProfile | None
+    profile_fetched_at: datetime | None
+    positions: int | None
+    job: FetchJob | None
+
+
+async def save_profile(session: AsyncSession, profile: SteamProfile, fetched_at: datetime) -> None:
+    await set_setting(
+        session,
+        SETTING_PROFILE,
+        json.dumps({**asdict(profile), "fetched_at": fetched_at.isoformat()}),
+    )
+
+
+async def get_account(session: AsyncSession) -> Account | None:
+    steam_id = await get_setting(session, SETTING_STEAM_ID)
+    if steam_id is None:
+        return None
+    profile: SteamProfile | None = None
+    fetched_at: datetime | None = None
+    if raw := await get_setting(session, SETTING_PROFILE):
+        data = json.loads(raw)
+        fetched_at = datetime.fromisoformat(data.pop("fetched_at"))
+        profile = SteamProfile(**data)
+    positions = await get_setting(session, SETTING_INVENTORY_POSITIONS)
+    return Account(
+        steam_id64=steam_id,
+        profile=profile,
+        profile_fetched_at=fetched_at,
+        positions=int(positions) if positions is not None else None,
+        job=await get_job(session, JOB_INVENTORY, steam_id),
+    )

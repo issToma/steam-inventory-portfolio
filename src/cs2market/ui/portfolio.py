@@ -6,12 +6,11 @@ from typing import Any
 import pandas as pd
 from nicegui import ui
 
-from cs2market.core.http import SteamBusyError, SteamError
-from cs2market.core.parsers import SearchResult, SteamFormatError, parse_profile_input
+from cs2market.core.parsers import SearchResult
 from cs2market.db import repo
 from cs2market.portfolio import Portfolio, Position, load_portfolio
 from cs2market.runtime import runtime
-from cs2market.search import STEAM_MAX_WAIT
+from cs2market.ui.account import AccountCard
 from cs2market.ui.common import fmt_pct, fmt_usd, header, pct_color
 from cs2market.ui.search_box import search_box
 
@@ -152,21 +151,7 @@ def register() -> None:
         with ui.column().classes("w-full max-w-6xl mx-auto p-4 gap-4"):
             ui.label("Portfolio").classes("text-h5")
 
-            # --- Inventory account -------------------------------------------------------
-            with ui.card().classes("w-full"):
-                ui.label("Steam inventory").classes("text-subtitle1")
-                with ui.row().classes("w-full items-center"):
-                    profile_input = ui.input(
-                        "Your Steam profile link or SteamID64",
-                        placeholder="https://steamcommunity.com/profiles/7656119…",
-                    ).classes("grow")
-                    save_button = ui.button("Save")
-                    sync_button = ui.button("Sync now").props("flat")
-                inventory_status = ui.label().classes("text-caption text-grey-7")
-                ui.label(
-                    "The inventory must be public (Steam → Profile → Edit Profile → Privacy). "
-                    "Items that cannot be sold on the market are skipped."
-                ).classes("text-caption text-grey-7")
+            account = AccountCard(on_change=lambda: refresh())
 
             # --- Totals and chart ------------------------------------------------------
             totals = ui.row().classes("gap-3")
@@ -213,7 +198,7 @@ def register() -> None:
                 table.rows = [_row(p) for p in portfolio.positions]
                 table.update()
                 redraw()
-                await show_inventory_status()
+                await account.render()
 
             def redraw() -> None:
                 if portfolio is None:
@@ -221,70 +206,6 @@ def register() -> None:
                 chart.options.clear()
                 chart.options.update(_value_chart(portfolio.value_history, range_toggle.value))
                 chart.update()
-
-            async def show_inventory_status() -> None:
-                async with runtime.sessions() as session:
-                    steam_id = await repo.get_setting(session, repo.SETTING_STEAM_ID)
-                    job = (
-                        await repo.get_job(session, repo.JOB_INVENTORY, steam_id)
-                        if steam_id
-                        else None
-                    )
-                if not steam_id:
-                    inventory_status.text = "No account set: only manual positions are shown."
-                elif job is None or job.status == "pending":
-                    inventory_status.text = f"Account {steam_id}: first sync is queued."
-                elif job.status == "error":
-                    inventory_status.text = f"Account {steam_id}: {job.last_error}"
-                else:
-                    inventory_status.text = (
-                        f"Account {steam_id}: synced {job.updated_at:%Y-%m-%d %H:%M}, "
-                        f"next at {job.run_after:%H:%M} (UTC)."
-                    )
-                if steam_id and not profile_input.value:
-                    profile_input.value = steam_id
-
-            async def save_account() -> None:
-                text = (profile_input.value or "").strip()
-                steam_id: str | None = None
-                if text:
-                    try:
-                        ref = parse_profile_input(text)
-                    except ValueError as exc:
-                        ui.notify(str(exc), type="warning")
-                        return
-                    steam_id = ref.steam_id64
-                    if ref.vanity:
-                        save_button.disable()
-                        try:
-                            steam_id = await runtime.market.resolve_vanity(
-                                ref.vanity, priority=True, max_wait=STEAM_MAX_WAIT
-                            )
-                        except SteamBusyError:
-                            ui.notify("Steam is rate limiting us; try again later.", type="warning")
-                            return
-                        except (SteamError, SteamFormatError) as exc:
-                            ui.notify(f"Could not resolve the profile: {exc}", type="warning")
-                            return
-                        finally:
-                            save_button.enable()
-                async with runtime.sessions() as session:
-                    await repo.set_inventory_owner(session, steam_id)
-                    await session.commit()
-                profile_input.value = steam_id or ""
-                ui.notify(
-                    "Saved; the inventory is synced within a minute." if steam_id else "Saved"
-                )
-                await refresh()
-
-            async def sync_now() -> None:
-                async with runtime.sessions() as session:
-                    steam_id = await repo.get_setting(session, repo.SETTING_STEAM_ID)
-                    if steam_id:
-                        await repo.run_job_now(session, repo.JOB_INVENTORY, steam_id)
-                        await session.commit()
-                ui.notify("Sync queued" if steam_id else "Set your Steam profile first")
-                await show_inventory_status()
 
             async def add_manual(result: SearchResult) -> bool:
                 form = await _position_dialog(result.market_hash_name, manual=True)
@@ -344,8 +265,6 @@ def register() -> None:
             search_box(action_label="Add to portfolio", on_pick=add_manual)
             table.on("edit", edit)
             range_toggle.on_value_change(redraw)
-            save_button.on_click(save_account)
-            sync_button.on_click(sync_now)
             await refresh()
             ui.timer(60, refresh)
 

@@ -8,7 +8,9 @@ from cs2market.core.parsers import (
     HistoryPoint,
     InventoryItem,
     PriceHistory,
+    ProfileRef,
     SearchResult,
+    SteamProfile,
 )
 from cs2market.core.steam import InventoryPrivateError, SteamMarket
 from cs2market.db import repo
@@ -20,9 +22,15 @@ NOW = datetime(2026, 10, 28, 12, tzinfo=UTC)
 
 
 class FakeMarket:
-    def __init__(self, inventory: list[InventoryItem] | Exception) -> None:
+    def __init__(self, inventory: list[InventoryItem] | Exception, privacy: str = "public") -> None:
         self._inventory = inventory
+        self._privacy = privacy
         self.calls: list[str] = []
+
+    async def profile(self, ref: ProfileRef) -> SteamProfile:
+        self.calls.append(f"profile:{ref.steam_id64}")
+        assert ref.steam_id64 is not None
+        return SteamProfile(ref.steam_id64, "Tester", None, "https://example", self._privacy)
 
     async def inventory(self, steam_id64: str) -> list[InventoryItem]:
         self.calls.append(steam_id64)
@@ -51,11 +59,17 @@ async def test_inventory_job_imports_sellable_items(sessions: SessionMaker) -> N
 
     await run_inventory_job(sessions, market)
 
-    assert market.calls == [STEAM_ID]
+    assert market.calls == [f"profile:{STEAM_ID}", STEAM_ID]
     async with sessions() as session:
         held = [(i.market_hash_name, h.quantity) for h, i in await repo.active_holdings(session)]
         job = await repo.get_job(session, repo.JOB_INVENTORY, STEAM_ID)
     assert held == [("Kilowatt Case", 2)]
+    async with sessions() as session:
+        account = await repo.get_account(session)
+    assert account is not None
+    assert account.profile is not None
+    assert account.profile.name == "Tester"
+    assert account.positions == 1
     assert job is not None
     assert job.status == "ok"
     assert job.run_after == NOW.replace(hour=18)
@@ -138,3 +152,31 @@ async def test_several_variants_share_one_group_page(sessions: SessionMaker) -> 
     )
 
     assert market.calls == ["group:G1"]
+
+
+async def test_private_profile_skips_the_inventory_request(sessions: SessionMaker) -> None:
+    market = FakeMarket([], privacy="private")
+
+    await run_inventory_job(sessions, market)
+
+    assert market.calls == [f"profile:{STEAM_ID}"]
+    async with sessions() as session:
+        job = await repo.get_job(session, repo.JOB_INVENTORY, STEAM_ID)
+    assert job is not None
+    assert "not public" in (job.last_error or "")
+
+
+async def test_fresh_public_profile_is_not_fetched_again(sessions: SessionMaker) -> None:
+    async with sessions() as session:
+        await repo.set_inventory_owner(session, STEAM_ID)
+        await repo.save_profile(
+            session, SteamProfile(STEAM_ID, "Tester", None, "https://example", "public"), NOW
+        )
+        await session.commit()
+        job = await repo.get_job(session, repo.JOB_INVENTORY, STEAM_ID)
+    assert job is not None
+    market = FakeMarket([])
+
+    await collector(sessions, market)._run(job)
+
+    assert market.calls == [STEAM_ID]
