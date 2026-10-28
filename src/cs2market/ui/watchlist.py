@@ -70,8 +70,12 @@ def register() -> None:
     @ui.page("/watchlist")
     async def watchlist_page() -> None:
         with page_frame("watchlist"):
-            ui.label(tr("Watchlist")).classes("text-h5")
-            ui.label(tr("Items you follow without owning them.")).classes("text-muted")
+            with ui.row().classes("w-full items-center"):
+                with ui.column().classes("gap-0"):
+                    ui.label(tr("Watchlist")).classes("text-h5")
+                    ui.label(tr("Items you follow without owning them.")).classes("text-muted")
+                ui.space()
+                ui.button(tr("Add item"), icon="add", on_click=lambda: open_add_dialog())
 
             async def watched() -> set[str]:
                 async with runtime.sessions() as session:
@@ -90,12 +94,16 @@ def register() -> None:
                 await refresh()
                 return True
 
-            search_box(
-                action_label=tr("Add"),
-                on_pick=add,
-                already=watched,
-                already_label=tr("In watchlist"),
-            )
+            def open_add_dialog() -> None:
+                with ui.dialog() as dialog, ui.card().classes("w-[48rem] max-w-full"):
+                    ui.label(tr("Add to watchlist")).classes("text-h6")
+                    search_box(
+                        action_label=tr("Add"),
+                        on_pick=add,
+                        already=watched,
+                        already_label=tr("In watchlist"),
+                    )
+                dialog.open()
 
             table = ui.table(columns=columns(), rows=await _rows(), row_key="id").classes("w-full")
             table.on("rowClick", lambda e: ui.navigate.to(f"/item/{e.args[1]['id']}"))

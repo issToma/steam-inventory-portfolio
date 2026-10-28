@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import Any
 
 import pandas as pd
+from fastapi.responses import RedirectResponse
 from nicegui import ui
 
 from cs2market.analysis import (
@@ -20,6 +21,7 @@ from cs2market.i18n import tr
 from cs2market.runtime import runtime
 from cs2market.ui.common import fmt_pct, fmt_usd, pct_color
 from cs2market.ui.layout import echart_theme, page_frame
+from cs2market.ui.positions import add_position
 
 RANGES = {
     "7D": timedelta(days=7),
@@ -134,12 +136,22 @@ def _stat(label: str, value: str, color: str = "") -> None:
 
 
 def register() -> None:
+    # Registered before /item/{item_id}, which would otherwise reject "by-name" as an id.
+    @ui.page("/item/by-name")
+    async def item_by_name(name: str) -> RedirectResponse:
+        async with runtime.sessions() as session:
+            item = await repo.get_or_create_item(session, name)
+            await session.commit()
+        return RedirectResponse(f"/item/{item.id}")
+
     @ui.page("/item/{item_id}")
     async def item_page(item_id: int) -> None:
         async with runtime.sessions() as session:
             item = await repo.get_item(session, item_id)
             points = await repo.load_history(session, item_id) if item else []
             fx = await repo.latest_fx(session)
+            tracked = await repo.is_tracked(session, item_id) if item else False
+            watched = await repo.in_watchlist(session, item_id) if item else False
 
         with page_frame("item"):
             if item is None:
@@ -151,6 +163,29 @@ def register() -> None:
             )
             if traits:
                 ui.label(traits).classes("text-muted")
+
+            async def toggle_watch() -> None:
+                async with runtime.sessions() as session:
+                    if watched:
+                        await repo.remove_from_watchlist(session, item_id)
+                    else:
+                        await repo.add_to_watchlist(session, item.market_hash_name)
+                    await session.commit()
+                ui.navigate.reload()
+
+            async def add_to_portfolio() -> None:
+                if await add_position(item.market_hash_name):
+                    ui.navigate.reload()
+
+            with ui.row().classes("gap-2"):
+                ui.button(
+                    tr("Remove from watchlist") if watched else tr("Add to watchlist"),
+                    icon="visibility_off" if watched else "visibility",
+                    on_click=toggle_watch,
+                ).props(f"outline color={'negative' if watched else 'primary'}")
+                ui.button(tr("Add to portfolio"), icon="add", on_click=add_to_portfolio).props(
+                    "outline"
+                )
 
             try:
                 frame = to_frame(points, fx)
@@ -170,7 +205,12 @@ def register() -> None:
                         "No price history yet. Either the collector has not fetched it, or the "
                         "item has never been sold on the market."
                     )
-                )
+                    if tracked
+                    else tr(
+                        "Prices of this item are not collected yet. Add it to the watchlist or "
+                        "the portfolio and its full history arrives within a minute."
+                    )
+                ).classes("text-muted")
                 return
 
             with ui.row().classes("gap-3"):
@@ -253,20 +293,3 @@ def register() -> None:
 
                 price_input.on_value_change(update_fee)
                 update_fee()
-
-            async with runtime.sessions() as session:
-                watched = await repo.in_watchlist(session, item_id)
-
-            async def toggle_watch() -> None:
-                async with runtime.sessions() as session:
-                    if watched:
-                        await repo.remove_from_watchlist(session, item_id)
-                    else:
-                        await repo.add_to_watchlist(session, item.market_hash_name)
-                    await session.commit()
-                ui.navigate.reload()
-
-            ui.button(
-                tr("Remove from watchlist") if watched else tr("Add to watchlist"),
-                on_click=toggle_watch,
-            ).props(f"flat color={'negative' if watched else 'primary'}")

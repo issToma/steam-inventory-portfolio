@@ -632,3 +632,36 @@ async def get_account(session: AsyncSession) -> Account | None:
         positions=int(positions) if positions is not None else None,
         job=await get_job(session, JOB_INVENTORY, steam_id),
     )
+
+
+async def due_job_count(session: AsyncSession) -> int:
+    count = await session.scalar(
+        select(func.count()).select_from(FetchJob).where(FetchJob.run_after <= func.now())
+    )
+    return count or 0
+
+
+async def get_or_create_item(session: AsyncSession, market_hash_name: str) -> Item:
+    """An item row for any market name, without starting to collect its prices.
+
+    A new item takes its type, group and icon from the catalog when they are known there.
+    """
+    await session.execute(
+        insert(Item).values(market_hash_name=market_hash_name).on_conflict_do_nothing()
+    )
+    item = await get_item_by_name(session, market_hash_name)
+    assert item is not None
+    if item.item_type is None:
+        entry = await session.get(CatalogEntry, market_hash_name)
+        if entry is not None and entry.item_type:
+            found = SearchResult(
+                market_hash_name=market_hash_name,
+                item_type=entry.item_type,
+                bucket_group_id=entry.bucket_group_id,
+                classid=entry.classid,
+                icon_url=entry.icon_url,
+                sell_listings=entry.sell_listings,
+                sell_price_usd_cents=entry.sell_price_usd_cents,
+            )
+            apply_search_result(item, found, parse_item_traits(market_hash_name, entry.item_type))
+    return item

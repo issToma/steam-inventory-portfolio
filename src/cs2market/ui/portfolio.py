@@ -1,6 +1,4 @@
-from dataclasses import dataclass
-from datetime import date, timedelta
-from decimal import Decimal, InvalidOperation
+from datetime import timedelta
 from typing import Any
 
 import pandas as pd
@@ -11,9 +9,9 @@ from cs2market.db import repo
 from cs2market.i18n import tr
 from cs2market.portfolio import Portfolio, Position, load_portfolio
 from cs2market.runtime import runtime
-from cs2market.ui.account import AccountCard
 from cs2market.ui.common import fmt_pct, fmt_usd, pct_color
 from cs2market.ui.layout import echart_theme, page_frame
+from cs2market.ui.positions import DELETE, PositionForm, add_position, position_dialog
 from cs2market.ui.search_box import search_box
 
 RANGES = {"30D": timedelta(days=30), "1Y": timedelta(days=365), "All": None}
@@ -42,14 +40,6 @@ def columns() -> list[dict[str, Any]]:
         {"name": "pnl", "label": tr("P&L"), "field": "pnl", "align": "right"},
         {"name": "actions", "label": "", "field": "id", "align": "right"},
     ]
-
-
-@dataclass
-class PositionForm:
-    quantity: int
-    location: str | None
-    buy_price_usd: Decimal | None
-    bought_at: date | None
 
 
 def _row(p: Position) -> dict[str, Any]:
@@ -100,77 +90,20 @@ def _value_chart(history: pd.Series, range_key: str) -> dict[str, Any]:
     }
 
 
-DELETE = "delete"
-
-
-async def _position_dialog(
-    title: str, *, manual: bool, initial: PositionForm | None = None, deletable: bool = False
-) -> PositionForm | str | None:
-    """Ask for position details; quantity and place only for manual positions.
-
-    Returns the form, DELETE when the user deletes the position, or None on cancel.
-    """
-    initial = initial or PositionForm(1, None, None, None)
-    with ui.dialog() as dialog, ui.card().classes("min-w-80"):
-        ui.label(title).classes("text-subtitle1")
-        if not manual:
-            ui.label(tr("Quantity comes from your Steam inventory.")).classes(
-                "text-caption text-muted"
-            )
-        quantity = ui.number(tr("Quantity"), value=initial.quantity, min=1, step=1, format="%d")
-        location = ui.input(
-            tr("Where it is kept"), value=initial.location or "", placeholder=tr("Storage unit #1")
-        )
-        quantity.set_visibility(manual)
-        location.set_visibility(manual)
-        price = ui.number(
-            tr("Purchase price per item, $ (optional)"),
-            value=float(initial.buy_price_usd) if initial.buy_price_usd is not None else None,
-            min=0,
-            format="%.2f",
-        )
-        bought = ui.input(
-            tr("Purchase date (optional, YYYY-MM-DD)"),
-            value=initial.bought_at.isoformat() if initial.bought_at else "",
-        )
-        error = ui.label().classes("text-negative text-caption")
-
-        def submit() -> None:
-            try:
-                buy = Decimal(str(price.value)) if price.value not in (None, "") else None
-                day = date.fromisoformat(bought.value) if bought.value else None
-            except InvalidOperation, ValueError:
-                error.text = tr("Check the price and the date.")
-                return
-            count = int(quantity.value or 0)
-            if count < 1:
-                error.text = tr("Quantity must be at least 1.")
-                return
-            dialog.submit(PositionForm(count, location.value.strip() or None, buy, day))
-
-        with ui.row().classes("w-full items-center"):
-            if deletable:
-                ui.button(tr("Delete"), on_click=lambda: dialog.submit(DELETE)).props(
-                    "flat color=negative"
-                )
-            ui.space()
-            ui.button(tr("Cancel"), on_click=lambda: dialog.submit(None)).props("flat")
-            ui.button(tr("Save"), on_click=submit)
-    result: PositionForm | str | None = await dialog
-    dialog.clear()
-    return result
-
-
 def register() -> None:
     @ui.page("/")
     async def portfolio_page() -> None:
         with page_frame("portfolio"):
-            ui.label(tr("Portfolio")).classes("text-h5")
+            with ui.row().classes("w-full items-center"):
+                ui.label(tr("Portfolio")).classes("text-h5")
+                ui.space()
+                ui.button(tr("Add item"), icon="add", on_click=lambda: open_add_dialog())
 
-            account = AccountCard(on_change=lambda: refresh())
+            banner = ui.column().classes("w-full")
 
-            # --- Totals and chart ------------------------------------------------------
+            # --- Totals, movers and chart -------------------------------------------------
             totals = ui.row().classes("gap-3")
+            movers = ui.row().classes("w-full gap-3")
             with ui.row().classes("items-center"):
                 range_toggle = ui.toggle(range_options(), value="1Y")
             chart = ui.echart({}, theme=echart_theme()).classes("w-full h-72")
@@ -186,11 +119,6 @@ def register() -> None:
                 "</q-td>",
             )
             table.on("rowClick", lambda e: ui.navigate.to(f"/item/{e.args[1]['item_id']}"))
-
-            ui.label(tr("Add items that are not in your inventory")).classes("text-h6")
-            ui.label(
-                tr("For example, storage unit contents: Steam does not show them in the inventory.")
-            ).classes("text-muted")
 
             portfolio: Portfolio | None = None
 
@@ -219,7 +147,8 @@ def register() -> None:
                 table.rows = [_row(p) for p in portfolio.positions]
                 table.update()
                 redraw()
-                await account.render()
+                _movers(movers, portfolio)
+                await _banner(banner)
 
             def redraw() -> None:
                 if portfolio is None:
@@ -229,21 +158,8 @@ def register() -> None:
                 chart.update()
 
             async def add_manual(result: SearchResult) -> bool:
-                form = await _position_dialog(result.market_hash_name, manual=True)
-                if not isinstance(form, PositionForm):
+                if not await add_position(result.market_hash_name, result):
                     return False
-                async with runtime.sessions() as session:
-                    await repo.add_manual_holding(
-                        session,
-                        result.market_hash_name,
-                        quantity=form.quantity,
-                        location=form.location,
-                        buy_price_usd=form.buy_price_usd,
-                        bought_at=form.bought_at,
-                        found=result,
-                    )
-                    await session.commit()
-                ui.notify(tr("Added {name}", name=result.market_hash_name))
                 await refresh()
                 return True
 
@@ -255,7 +171,7 @@ def register() -> None:
                 if holding is None:
                     return
                 manual = holding.source == repo.SOURCE_MANUAL
-                form = await _position_dialog(
+                form = await position_dialog(
                     row["name"],
                     manual=manual,
                     initial=PositionForm(
@@ -283,7 +199,23 @@ def register() -> None:
                     await session.commit()
                 await refresh()
 
-            search_box(action_label=tr("Add to portfolio"), on_pick=add_manual)
+            async def open_add_dialog() -> None:
+                with ui.dialog() as dialog, ui.card().classes("w-[48rem] max-w-full"):
+                    ui.label(tr("Add items that are not in your inventory")).classes("text-h6")
+                    ui.label(
+                        tr(
+                            "For example, storage unit contents: Steam does not show them in "
+                            "the inventory."
+                        )
+                    ).classes("text-muted")
+
+                    async def pick(result: SearchResult) -> bool:
+                        dialog.close()
+                        return await add_manual(result)
+
+                    search_box(action_label=tr("Add to portfolio"), on_pick=pick)
+                dialog.open()
+
             table.on("edit", edit)
             range_toggle.on_value_change(redraw)
             await refresh()
@@ -296,3 +228,49 @@ def _stat(label: str, value: str, color: str = "", hint: str = "") -> None:
         ui.label(value).classes(f"text-h6 {color}")
         if hint:
             ui.label(hint).classes("text-caption text-muted")
+
+
+def _movers(container: ui.row, portfolio: Portfolio) -> None:
+    """Biggest 24h gainers and losers among the positions."""
+    container.clear()
+    changed = [p for p in portfolio.positions if p.change_24h]
+    gainers = sorted((p for p in changed if (p.change_24h or 0) > 0), key=_change, reverse=True)
+    losers = sorted((p for p in changed if (p.change_24h or 0) < 0), key=_change)
+    with container:
+        for title, positions in (
+            (tr("Top gainers, 24h"), gainers),
+            (tr("Top losers, 24h"), losers),
+        ):
+            with ui.card().classes("grow min-w-72"):
+                ui.label(title).classes("text-caption text-muted")
+                if not positions:
+                    ui.label("—").classes("text-muted")
+                for p in positions[:3]:
+                    with ui.row().classes("w-full no-wrap items-center gap-2"):
+                        ui.link(p.name, f"/item/{p.item_id}").classes("plain-link grow truncate")
+                        ui.label(fmt_pct(p.change_24h)).classes(pct_color(p.change_24h))
+
+
+def _change(position: Position) -> float:
+    return position.change_24h or 0.0
+
+
+async def _banner(container: ui.column) -> None:
+    """A short notice when the inventory is not connected or cannot be read."""
+    async with runtime.sessions() as session:
+        account = await repo.get_account(session)
+    container.clear()
+    problem = account is not None and (
+        (account.profile is not None and account.profile.privacy != "public")
+        or (account.job is not None and account.job.status == "error")
+    )
+    if account is not None and not problem:
+        return
+    with container, ui.card().classes("w-full"), ui.row().classes("w-full items-center"):
+        ui.icon("warning" if problem else "link", color="amber" if problem else None)
+        ui.label(
+            tr("Your Steam inventory could not be imported. See Settings for details.")
+            if problem
+            else tr("Connect your Steam inventory to import your items automatically.")
+        ).classes("grow")
+        ui.button(tr("Open settings"), on_click=lambda: ui.navigate.to("/settings")).props("flat")

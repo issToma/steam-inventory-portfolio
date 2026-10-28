@@ -53,6 +53,11 @@ RU_PLURAL: dict[tuple[str, str], tuple[str, str, str]] = {
     ("{n} hour", "{n} hours"): ("{n} час", "{n} часа", "{n} часов"),
     ("{n} minute", "{n} minutes"): ("{n} минуту", "{n} минуты", "{n} минут"),
     ("{n} item", "{n} items"): ("{n} предмет", "{n} предмета", "{n} предметов"),
+    ("Updating · {n} task queued", "Updating · {n} tasks queued"): (
+        "Обновляем · в очереди {n} задача",
+        "Обновляем · в очереди {n} задачи",
+        "Обновляем · в очереди {n} задач",
+    ),
     ("{n} match among items seen before.", "{n} matches among items seen before."): (
         "{n} совпадение среди уже встречавшихся предметов.",
         "{n} совпадения среди уже встречавшихся предметов.",
@@ -73,6 +78,27 @@ RU: dict[str, str] = {
     "Dark": "Тёмная",
     "Dark dimmed": "Тёмно-серая",
     "Light": "Светлая",
+    "Search items…": "Поиск предметов…",
+    "Collector is off": "Сборщик выключен",
+    "Steam paused us · {minutes} min": "Steam поставил паузу · {minutes} мин",
+    "Prices are up to date": "Цены актуальны",
+    # Settings
+    "Appearance": "Внешний вид",
+    "Data collection": "Сбор данных",
+    "Collector": "Сборщик",
+    "running": "работает",
+    "turned off": "выключен",
+    "Tasks waiting now": "Задач в очереди сейчас",
+    "Pause between requests to Steam": "Пауза между запросами к Steam",
+    "{seconds} s": "{seconds} с",
+    "Important items refresh every": "Важные предметы обновляются каждые",
+    "Cheaper items refresh every": "Дешёвые предметы обновляются каждые",
+    "6 to 24 hours": "6–24 часа",
+    "Inventory import every": "Импорт инвентаря каждые",
+    "These values come from the CS2M_* environment variables; see .env.example. The pause cannot be set below 15 seconds.": (
+        "Эти значения задаются переменными окружения CS2M_* (см. .env.example). "
+        "Паузу нельзя сделать меньше 15 секунд."
+    ),
     # Shared
     "All": "Всё",
     "Price": "Цена",
@@ -160,6 +186,16 @@ RU: dict[str, str] = {
         "Например, содержимое хранилищ: Steam не показывает его в инвентаре."
     ),
     "Add to portfolio": "В портфель",
+    "Add item": "Добавить предмет",
+    "Top gainers, 24h": "Лидеры роста, 24ч",
+    "Top losers, 24h": "Лидеры падения, 24ч",
+    "Your Steam inventory could not be imported. See Settings for details.": (
+        "Не удалось импортировать инвентарь Steam. Подробности — в настройках."
+    ),
+    "Connect your Steam inventory to import your items automatically.": (
+        "Подключите инвентарь Steam, чтобы предметы импортировались автоматически."
+    ),
+    "Open settings": "Открыть настройки",
     "Added {name}": "Добавлено: {name}",
     "Quantity comes from your Steam inventory.": "Количество берётся из инвентаря Steam.",
     "Quantity": "Количество",
@@ -256,5 +292,9 @@ RU: dict[str, str] = {
     "Listing price (buyer pays), $": "Цена лота (платит покупатель), $",
     "You receive {proceeds}, fees {fees}": "Вы получите {proceeds}, комиссия {fees}",
     "Remove from watchlist": "Убрать из watchlist",
+    "Prices of this item are not collected yet. Add it to the watchlist or the portfolio and its full history arrives within a minute.": (
+        "Цены этого предмета пока не собираются. Добавьте его в watchlist или в портфель, "
+        "и полная история появится в течение минуты."
+    ),
     "Add to watchlist": "Добавить в watchlist",
 }
