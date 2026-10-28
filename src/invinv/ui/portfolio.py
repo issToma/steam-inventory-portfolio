@@ -187,9 +187,15 @@ def register() -> None:
                         ui.menu_item(tr("Pin all inventory items"), on_click=lambda: pin_all(True))
                         ui.menu_item(tr("Unpin all"), on_click=lambda: pin_all(False))
             table = (
-                ui.table(columns=columns(with_pnl=False), rows=[], row_key="id")
+                ui.table(
+                    columns=columns(with_pnl=False),
+                    rows=[],
+                    row_key="id",
+                    # Hundreds of rows with icons and trend lines are slow to draw at once.
+                    pagination={"rowsPerPage": 50, "sortBy": None},
+                )
                 .classes("w-full")
-                .props("loading")
+                .props(":rows-per-page-options=[25,50,100,0] loading")
             )
             table.add_slot("body-cell-name", NAME_CELL_SLOT)
             table.add_slot(

@@ -17,12 +17,22 @@ def create_api() -> FastAPI:
     return app
 
 
+RECONNECT_TIMEOUT_SECONDS = 15.0
+
+
 def create_app() -> FastAPI:
     app = create_api()
     register_pages()
     nicegui_app.on_startup(runtime.start)
     nicegui_app.on_shutdown(runtime.stop)
-    ui.run_with(app, title=APP_NAME, storage_secret=get_settings().ui_storage_secret)
+    ui.run_with(
+        app,
+        title=APP_NAME,
+        storage_secret=get_settings().ui_storage_secret,
+        # NiceGUI's default of 3 s also sets a 2 s ping timeout: a browser busy drawing a big
+        # table for longer lost the connection and reloaded the page.
+        reconnect_timeout=RECONNECT_TIMEOUT_SECONDS,
+    )
     return app
 
 
