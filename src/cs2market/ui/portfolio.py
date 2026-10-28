@@ -390,7 +390,10 @@ def _movers(container: ui.row, portfolio: Portfolio, period: str) -> None:
                     ui.label("—").classes("text-muted")
                 for p, change in entries[:3]:
                     with ui.row().classes("w-full no-wrap items-center gap-2"):
-                        ui.link(p.name, f"/item/{p.item_id}").classes("plain-link grow truncate")
+                        color = rarity_color(p.rarity, p.quality)
+                        ui.link(p.name, f"/item/{p.item_id}").classes(
+                            "plain-link grow truncate"
+                        ).style(f"color: {color}" if color else "")
                         ui.label(fmt_pct(change)).classes(pct_color(change))
 
 
