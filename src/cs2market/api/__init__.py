@@ -32,7 +32,14 @@ async def search(
     """Search the Steam market (at most 10 results), ahead of background requests."""
     try:
         results = await asyncio.wait_for(
-            runtime.market.search(q, quality=quality, priority=True, max_wait=SEARCH_MAX_WAIT),
+            runtime.market.search(
+                q,
+                kind=kind,
+                quality=quality,
+                exterior=exterior,
+                priority=True,
+                max_wait=SEARCH_MAX_WAIT,
+            ),
             timeout=SEARCH_TIMEOUT,
         )
     except SteamBusyError as exc:
