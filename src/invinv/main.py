@@ -6,6 +6,7 @@ from nicegui import app as nicegui_app
 from nicegui import ui
 
 from invinv import APP_NAME, __version__, api
+from invinv.db.migrate import upgrade_database
 from invinv.runtime import runtime
 from invinv.settings import get_settings
 from invinv.ui import register_pages
@@ -41,4 +42,5 @@ def run() -> None:
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
     settings = get_settings()
+    upgrade_database()
     uvicorn.run(create_app(), host=settings.host, port=settings.port)

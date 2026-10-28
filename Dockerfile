@@ -22,4 +22,4 @@ ENV PATH="/app/.venv/bin:$PATH" \
     INVINV_HOST=0.0.0.0
 EXPOSE 8080
 
-CMD ["sh", "-c", "alembic upgrade head && invinv"]
+CMD ["invinv"]
