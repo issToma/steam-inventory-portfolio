@@ -5,8 +5,10 @@ import pytest
 
 from invinv.analysis import (
     MissingRateError,
+    change_since,
     compute_metrics,
     daily_series,
+    price_views,
     recent_trend,
     to_frame,
 )
@@ -74,13 +76,17 @@ def test_metrics_of_empty_history() -> None:
 
 
 def test_recent_trend_averages_the_last_week() -> None:
-    points = [point(START + timedelta(days=d), "1") for d in range(20)]
+    # 20 sales per point: a liquid item, whose robust line is its plain prices.
+    points = [point(START + timedelta(days=d), "1", volume=20) for d in range(20)]
     points += [
-        point(START + timedelta(days=20, hours=h), str(10 + h // 6), resolution="hour")
+        point(START + timedelta(days=20, hours=h), str(10 + h // 6), 20, resolution="hour")
         for h in range(12)
     ]
 
-    assert recent_trend(to_frame(points, {})) == [10, 11]
+    trend = recent_trend(to_frame(points, {}))
+
+    assert trend[-2:] == [10, 11]
+    assert set(trend[:-2]) == {1}
     assert recent_trend(to_frame([], {})) == []
 
 
@@ -118,3 +124,27 @@ def test_wild_day_is_dropped_even_with_many_sales() -> None:
     frame = to_frame(points, {})
 
     assert frame["price"].max() < 1
+
+
+def test_robust_prices_ignore_odd_trades_of_a_rare_item() -> None:
+    prices = ["0.03"] * 10 + ["32", "0.03", "15"]
+    frame = to_frame(
+        [point(START + timedelta(days=i), p, volume=1) for i, p in enumerate(prices)], {}
+    )
+
+    robust = price_views(frame).robust
+
+    assert robust.iloc[-1] == pytest.approx(0.03)
+
+
+def test_change_since_compares_the_price_with_the_robust_price_then() -> None:
+    frame = to_frame(
+        [point(START + timedelta(days=i), "10", volume=20) for i in range(10)]
+        + [point(START + timedelta(days=10), "12", volume=20)],
+        {},
+    )
+    robust = price_views(frame).robust
+    now = START + timedelta(days=10, hours=1)
+
+    assert change_since(robust, 15.0, timedelta(days=7), now) == pytest.approx(0.5)
+    assert change_since(robust, 15.0, None, now) == pytest.approx(0.5)

@@ -14,7 +14,7 @@ DAY = datetime(2026, 10, 1, tzinfo=UTC)
 
 def history(*prices: float) -> list[StoredPoint]:
     return [
-        StoredPoint(DAY + timedelta(days=i), "day", Decimal(str(p)), 1, 1)
+        StoredPoint(DAY + timedelta(days=i), "day", Decimal(str(p)), 20, 1)
         for i, p in enumerate(prices)
     ]
 
@@ -87,7 +87,8 @@ def test_period_stats() -> None:
 
 
 def test_position_change_per_period() -> None:
-    (pos,) = value_positions([position(1, [10, 20, 40], quantity=1)]).positions
+    now = DAY + timedelta(days=2, hours=1)
+    (pos,) = value_positions([position(1, [10, 20, 40], quantity=1)], now=now).positions
 
     assert pos.change("7D") == pytest.approx(3.0)
     assert pos.change("All") == pytest.approx(3.0)
@@ -106,7 +107,7 @@ def test_value_history_starts_when_every_item_is_on_the_market() -> None:
         buy_price_usd=None,
         history=to_frame(
             [
-                StoredPoint(DAY + timedelta(days=2 + i), "day", Decimal(p), 1, 1)
+                StoredPoint(DAY + timedelta(days=2 + i), "day", Decimal(p), 20, 1)
                 for i, p in enumerate(["5", "6"])
             ],
             {},

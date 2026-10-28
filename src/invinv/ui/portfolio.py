@@ -398,11 +398,19 @@ def _period_stats(container: ui.row, stats: PeriodStats | None) -> None:
 
 
 def _movers(container: ui.row, portfolio: Portfolio, period: str) -> None:
-    """Biggest gainers and losers among the positions over the selected period."""
+    """Positions that gained or lost the most money over the selected period.
+
+    Ranked by dollars rather than percent: a cent item going from $0.01 to $0.03 is +200%
+    but hardly moves the portfolio.
+    """
     container.clear()
-    changed = [(p, p.change(period)) for p in portfolio.positions]
-    gainers = sorted(((p, c) for p, c in changed if c and c > 0), key=lambda x: -x[1])
-    losers = sorted(((p, c) for p, c in changed if c and c < 0), key=lambda x: x[1])
+    changed = []
+    for p in portfolio.positions:
+        change = p.change(period)
+        if p.value and change is not None and change > -1:
+            changed.append((p, change, p.value - p.value / (1 + change)))
+    gainers = sorted((x for x in changed if x[2] > 0), key=lambda x: -x[2])
+    losers = sorted((x for x in changed if x[2] < 0), key=lambda x: x[2])
     label = tr("all time") if period == "All" else period
     with container:
         for title, entries in (
@@ -414,13 +422,16 @@ def _movers(container: ui.row, portfolio: Portfolio, period: str) -> None:
                 ui.label(title).classes("text-caption text-primary")
                 if not entries:
                     ui.label("—").classes("text-muted")
-                for p, change in entries[:3]:
+                for p, change, dollars in entries[:3]:
                     with ui.row().classes("w-full no-wrap items-center gap-2"):
                         color = rarity_color(p.rarity, p.quality, p.name_color, p.appid)
                         ui.link(p.name, f"/item/{p.item_id}").classes(
                             "plain-link grow truncate"
                         ).style(f"color: {color}" if color else "")
-                        ui.label(fmt_pct(change)).classes(pct_color(change))
+                        sign = "+" if dollars > 0 else "-"
+                        ui.label(f"{sign}{fmt_usd(abs(dollars))} ({fmt_pct(change)})").classes(
+                            f"{pct_color(change)} whitespace-nowrap"
+                        )
 
 
 async def _banner(container: ui.column) -> None:

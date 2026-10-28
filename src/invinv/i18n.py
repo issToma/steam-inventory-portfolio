@@ -327,9 +327,11 @@ RU: dict[str, str] = {
     ),
     "Fee calculator": "Калькулятор комиссии",
     "Hide outliers": "Скрывать выбросы",
-    "Hides single odd sales, such as one sticker craft sold far above the usual price. Metrics always ignore them.": (
-        "Скрывает одиночные необычные продажи, например крафт с наклейками намного дороже "
-        "обычной цены. Метрики их всегда не учитывают."
+    "Draws the median of about the last 20 sales, so that single odd sales (say, a cheap item "
+    "bought for far more) do not spike the chart. Prices and changes always use it.": (
+        "Рисует медиану примерно 20 последних продаж, чтобы единичные странные сделки "
+        "(например, дешёвый предмет, купленный намного дороже) не давали пиков на графике. "
+        "Цены и изменения всегда считаются так."
     ),
     "Listing price (buyer pays), $": "Цена лота (платит покупатель), $",
     "You receive {proceeds}, fees {fees}": "Вы получите {proceeds}, комиссия {fees}",

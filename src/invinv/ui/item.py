@@ -6,13 +6,16 @@ from fastapi.responses import RedirectResponse
 from nicegui import ui
 
 from invinv.analysis import (
+    CHANGE_WINDOWS,
     MissingRateError,
+    change_since,
     compute_metrics,
     daily_series,
     ema,
     hourly_series,
     price_views,
     remove_outliers,
+    robust_prices,
     sma,
     to_frame,
 )
@@ -283,11 +286,8 @@ def register() -> None:
                     fmt_usd(metrics.last_price),
                     hint=time_ago(metrics.last_ts.to_pydatetime()),
                 )
-                for label, value in (
-                    ("24h", metrics.change_24h),
-                    ("7d", metrics.change_7d),
-                    ("30d", metrics.change_30d),
-                ):
+                for label, span in CHANGE_WINDOWS.items():
+                    value = change_since(views.robust, current.price, span, datetime.now(UTC))
                     _stat(label, fmt_pct(value), pct_color(value))
                 _stat(
                     tr("Volatility (30d, daily)"),
@@ -318,8 +318,9 @@ def register() -> None:
                 with outliers_switch:
                     ui.tooltip(
                         tr(
-                            "Hides single odd sales, such as one sticker craft sold far above "
-                            "the usual price. Metrics always ignore them."
+                            "Draws the median of about the last 20 sales, so that single odd "
+                            "sales (say, a cheap item bought for far more) do not spike the "
+                            "chart. Prices and changes always use it."
                         )
                     )
                 ema_switch = ui.switch("EMA")
@@ -330,7 +331,11 @@ def register() -> None:
             chart = ui.echart({}).classes("w-full h-[520px]")
 
             def redraw() -> None:
-                series = _select(frame if outliers_switch.value else raw_frame, range_toggle.value)
+                if outliers_switch.value:
+                    series = _select(frame, range_toggle.value)
+                    series = series.assign(price=robust_prices(series))
+                else:
+                    series = _select(raw_frame, range_toggle.value)
                 chart.options.clear()
                 chart.options.update(
                     themed_chart(

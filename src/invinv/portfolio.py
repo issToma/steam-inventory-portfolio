@@ -10,9 +10,10 @@ from itertools import batched
 import pandas as pd
 
 from invinv.analysis import (
+    CHANGE_WINDOWS,
     Metrics,
     MissingRateError,
-    change_over,
+    change_since,
     compute_metrics,
     daily_series,
     price_views,
@@ -95,21 +96,20 @@ class ItemPrices:
     """What the valuation needs from one item's price history, computed once per history."""
 
     metrics: Metrics | None
-    daily: pd.Series | None  # daily price, for the portfolio's value over time
+    daily: pd.Series | None  # robust daily price, for the portfolio's value over time
+    robust: pd.Series | None  # robust prices, the reference for period changes
     trend: tuple[float, ...]
-    changes: tuple[tuple[str, float | None], ...]  # per key of PERIODS
     sales_price: float | None  # pricing.recent_sales_price(), when nothing is listed
 
 
 def item_prices(history: pd.DataFrame, publisher_fee: float = PUBLISHER_FEE_RATE) -> ItemPrices:
     views = price_views(history) if not history.empty else None
-    prices = views.prices if views else pd.Series(dtype=float)
     return ItemPrices(
         sales_price=recent_sales_price(views) if views else None,
         metrics=compute_metrics(history, views, publisher_fee),
-        daily=views.daily["price"] if views else None,
+        daily=views.robust_daily if views else None,
+        robust=views.robust if views else None,
         trend=tuple(recent_trend(history, views=views)),
-        changes=tuple((key, change_over(prices, span)) for key, span in PERIODS.items()),
     )
 
 
@@ -170,6 +170,7 @@ def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None
         metrics = computed.metrics
         current = quote(p.listing, computed.sales_price, now)
         price = current.price if current else None
+        changes = _changes(computed.robust, price, now)
         unit_proceeds = (
             seller_proceeds(round(price * 100), p.publisher_fee) / 100
             if price is not None
@@ -188,6 +189,7 @@ def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None
                 metrics,
                 computed,
                 current.source if current else None,
+                changes,
             )
         )
     total = sum(value for _, _, value, *_ in rows if value is not None)
@@ -205,9 +207,9 @@ def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None
             cost=cost,
             pnl=pnl,
             share=value / total if value is not None and total else None,
-            change_24h=metrics.change_24h if metrics else None,
-            change_7d=metrics.change_7d if metrics else None,
-            change_30d=metrics.change_30d if metrics else None,
+            change_24h=changes["24h"],
+            change_7d=changes["7d"],
+            change_30d=changes["30d"],
             icon_url=p.icon_url,
             rarity=p.rarity,
             quality=p.quality,
@@ -215,10 +217,10 @@ def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None
             pinned=p.pinned,
             appid=p.appid,
             name_color=p.name_color,
-            changes=computed.changes,
+            changes=tuple((key, changes[key]) for key in PERIODS),
             price_source=source,
         )
-        for p, price, value, proceeds, cost, pnl, metrics, computed, source in rows
+        for p, price, value, proceeds, cost, pnl, metrics, computed, source, changes in rows
     ]
     positions.sort(key=lambda pos: pos.value or 0, reverse=True)
     with_pnl = [pos for pos in positions if pos.pnl is not None]
@@ -231,6 +233,18 @@ def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None
         unpriced=sum(1 for pos in positions if pos.price is None),
         value_history=value_history(inputs, dailies),
     )
+
+
+def _changes(
+    robust: pd.Series | None, price: float | None, now: datetime
+) -> dict[str, float | None]:
+    """Changes over the 24h / 7d / 30d columns and over every key of PERIODS."""
+    return {
+        key: change_since(robust, price, span, now)
+        if robust is not None and price is not None
+        else None
+        for key, span in (CHANGE_WINDOWS | PERIODS).items()
+    }
 
 
 def value_history(

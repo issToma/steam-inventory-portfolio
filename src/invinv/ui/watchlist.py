@@ -3,7 +3,15 @@ from typing import Any
 
 from nicegui import ui
 
-from invinv.analysis import MissingRateError, compute_metrics, price_views, recent_trend, to_frame
+from invinv.analysis import (
+    CHANGE_WINDOWS,
+    MissingRateError,
+    change_since,
+    compute_metrics,
+    price_views,
+    recent_trend,
+    to_frame,
+)
 from invinv.core.parsers import SearchResult
 from invinv.db import repo
 from invinv.i18n import tr
@@ -71,14 +79,21 @@ async def _rows() -> list[dict[str, Any]]:
                 row["spark_up"] = len(trend) < 2 or trend[-1] >= trend[0]
             except MissingRateError:
                 metrics = None
+                views = None
                 current = None
                 row["status"] = tr("waiting for exchange rate")
-            if metrics is not None:
+            if metrics is not None and views is not None:
+                price = current.price if current else metrics.last_price
+                now = datetime.now(UTC)
+                changes = {
+                    key: change_since(views.robust, price, span, now)
+                    for key, span in CHANGE_WINDOWS.items()
+                }
                 row |= {
-                    "price": fmt_usd(current.price if current else metrics.last_price),
-                    "change_24h": fmt_pct(metrics.change_24h),
-                    "change_7d": fmt_pct(metrics.change_7d),
-                    "change_30d": fmt_pct(metrics.change_30d),
+                    "price": fmt_usd(price),
+                    "change_24h": fmt_pct(changes["24h"]),
+                    "change_7d": fmt_pct(changes["7d"]),
+                    "change_30d": fmt_pct(changes["30d"]),
                     "volume": f"{metrics.avg_daily_volume_30d:,.0f}"
                     if metrics.avg_daily_volume_30d is not None
                     else "—",

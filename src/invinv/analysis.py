@@ -3,7 +3,7 @@
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pandas as pd
@@ -144,16 +144,66 @@ class PriceViews:
 
     daily: pd.DataFrame
     hourly: pd.DataFrame
-    prices: pd.Series  # combined_prices()
+    prices: pd.Series  # daily points up to the first hourly one, then hourly points
+    # robust_prices() of `prices` and of `daily`: what charts and period changes use.
+    robust: pd.Series
+    robust_daily: pd.Series
 
 
 def price_views(frame: pd.DataFrame) -> PriceViews:
     hourly = hourly_series(frame)
     daily = daily_series(frame, hourly)
-    prices = daily["price"]
+    combined = daily
     if not hourly.empty:
-        prices = pd.concat([prices[prices.index < hourly.index[0]], hourly["price"]])
-    return PriceViews(daily=daily, hourly=hourly, prices=prices)
+        combined = pd.concat([daily[daily.index < hourly.index[0]], hourly])
+    return PriceViews(
+        daily=daily,
+        hourly=hourly,
+        prices=combined["price"],
+        robust=robust_prices(combined),
+        robust_daily=robust_prices(daily),
+    )
+
+
+# A price that one odd trade cannot move: the median over about the last ROBUST_SALES sales.
+ROBUST_SALES = 20
+MAX_ROBUST_POINTS = 30
+
+
+def robust_prices(series: pd.DataFrame) -> pd.Series:
+    """Every point's price as the median of the points that hold about its last 20 sales.
+
+    A liquid item has that many sales in one point, so its line stays as it is; for a rare
+    item with one sale per point the median runs over the last 20 points.
+    """
+    if series.empty:
+        return series["price"].astype(float)
+    typical = float(series["volume"].median())
+    points = min(MAX_ROBUST_POINTS, max(1, math.ceil(ROBUST_SALES / max(typical, 1.0))))
+    return series["price"].rolling(points, min_periods=1).median()
+
+
+# Windows of the change columns (24h / 7d / 30d).
+CHANGE_WINDOWS: dict[str, timedelta] = {
+    "24h": timedelta(hours=24),
+    "7d": timedelta(days=7),
+    "30d": timedelta(days=30),
+}
+
+
+def change_since(
+    robust: pd.Series, price: float, period: timedelta | None, now: datetime
+) -> float | None:
+    """How the current price compares with the robust price at the start of the period
+    (None = all history; a history shorter than the period counts from its first point)."""
+    if robust.empty:
+        return None
+    then = robust.iloc[0]
+    if period is not None:
+        before = robust[: pd.Timestamp(now - period)]
+        if not before.empty:
+            then = before.iloc[-1]
+    return float(price / then - 1) if then else None
 
 
 def compute_metrics(
@@ -195,28 +245,9 @@ def ema(series: pd.Series, window: int) -> pd.Series:
 def recent_trend(
     frame: pd.DataFrame, days: int = 7, bucket: str = "6h", views: PriceViews | None = None
 ) -> list[float]:
-    """Prices of the last few days, averaged per bucket, for a small trend line."""
+    """Robust prices of the last few days, averaged per bucket, for a small trend line."""
     if frame.empty:
         return []
-    hourly = (views.hourly if views else hourly_series(frame))["price"]
-    if not hourly.empty:
-        series = hourly
-    else:
-        series = (views.daily if views else daily_series(frame))["price"]
+    series = (views or price_views(frame)).robust
     recent = series[series.index >= series.index[-1] - timedelta(days=days)]
     return [float(v) for v in recent.resample(bucket).mean().dropna()]
-
-
-def change_over(prices: pd.Series, period: timedelta | None) -> float | None:
-    """Relative change of PriceViews.prices over the period; None = all history.
-
-    When the history is shorter than the period, the change counts from its first point.
-    """
-    if prices.empty:
-        return None
-    if period is not None:
-        before = prices[: prices.index[-1] - period]
-        if not before.empty:
-            prices = prices[before.index[-1] :]
-    first = prices.iloc[0]
-    return float(prices.iloc[-1] / first - 1) if first else None

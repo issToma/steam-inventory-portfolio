@@ -15,7 +15,7 @@ from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from invinv.analysis import MissingRateError, compute_metrics, price_views, to_frame
+from invinv.analysis import MissingRateError, change_since, price_views, to_frame
 from invinv.core.games import game_name
 from invinv.core.telegram import TelegramBot, TelegramError
 from invinv.db import repo
@@ -94,14 +94,15 @@ def reading_from(
     except MissingRateError:
         frame = to_frame([], fx)
     views = price_views(frame) if not frame.empty else None
-    metrics = compute_metrics(frame, views)
     current = quote(listing, recent_sales_price(views) if views else None, now)
     if current is None:
         return None
+    if views is None:
+        return Reading(current.price, None, None)
     return Reading(
         current.price,
-        metrics.change_24h if metrics else None,
-        metrics.change_7d if metrics else None,
+        change_since(views.robust, current.price, timedelta(hours=24), now),
+        change_since(views.robust, current.price, timedelta(days=7), now),
     )
 
 
