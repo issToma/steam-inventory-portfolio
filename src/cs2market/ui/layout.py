@@ -44,6 +44,13 @@ body.body--dark { --q-dark-page: var(--bg); --q-dark: var(--surface); }
 .nav-item.disabled { color: var(--muted); opacity: .6; }
 .text-muted { color: var(--muted) !important; }
 .period-card { border-color: var(--q-primary) !important; }
+/* Game switch: separate, roomy pill buttons; the active one is filled with the accent. */
+.game-switch { gap: 8px; background: transparent !important; box-shadow: none !important; }
+.game-switch .q-btn { border-radius: 999px !important; padding: 6px 18px; font-size: 0.95rem;
+                      border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.game-switch .q-btn.bg-primary { border-color: var(--q-primary); }
+.game-switch .q-btn:hover { background: var(--hover); }
+.game-switch .q-btn.bg-primary:hover { background: var(--q-primary) !important; }
 a.plain-link { color: inherit; text-decoration: none; }
 a.plain-link:hover { text-decoration: underline; }
 """

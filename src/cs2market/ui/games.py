@@ -27,8 +27,10 @@ class GameSwitch:
 
     def __init__(self, on_change: Callable[[], Awaitable[None]]) -> None:
         self._on_change = on_change
-        self._toggle = ui.toggle({ALL_GAMES: tr("All games")}, value=ALL_GAMES).props(
-            "dense no-caps"
+        self._toggle = (
+            ui.toggle({ALL_GAMES: tr("All games")}, value=ALL_GAMES)
+            .props("no-caps unelevated toggle-color=primary toggle-text-color=white")
+            .classes("game-switch my-2")
         )
         self._toggle.on_value_change(self._changed)
         self._toggle.set_visibility(False)
