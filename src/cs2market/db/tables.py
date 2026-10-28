@@ -56,6 +56,8 @@ class Item(Base):
     quality: Mapped[str | None] = mapped_column(Text)
     classid: Mapped[str | None] = mapped_column(Text)
     icon_url: Mapped[str | None] = mapped_column(Text)
+    # The game's market fee share when it is not Steam's default 10%, from the inventory.
+    publisher_fee: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

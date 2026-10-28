@@ -9,7 +9,7 @@ from decimal import Decimal
 import pandas as pd
 
 from cs2market.core.currency import USD
-from cs2market.core.fees import seller_proceeds
+from cs2market.core.fees import PUBLISHER_FEE_RATE, seller_proceeds
 from cs2market.db.repo import StoredPoint
 
 
@@ -137,7 +137,11 @@ def price_views(frame: pd.DataFrame) -> PriceViews:
     return PriceViews(daily=daily, hourly=hourly, prices=prices)
 
 
-def compute_metrics(frame: pd.DataFrame, views: PriceViews | None = None) -> Metrics | None:
+def compute_metrics(
+    frame: pd.DataFrame,
+    views: PriceViews | None = None,
+    publisher_fee: float = PUBLISHER_FEE_RATE,
+) -> Metrics | None:
     if frame.empty:
         return None
     views = views or price_views(frame)
@@ -157,7 +161,7 @@ def compute_metrics(frame: pd.DataFrame, views: PriceViews | None = None) -> Met
         change_30d=_change(daily["price"], daily.index[-1], timedelta(days=30)),
         volatility_30d=float(returns.std()) if len(returns) > 1 else None,
         avg_daily_volume_30d=float(month["volume"].mean()) if not month.empty else None,
-        proceeds_after_fee=seller_proceeds(round(last_price * 100)) / 100,
+        proceeds_after_fee=seller_proceeds(round(last_price * 100), publisher_fee) / 100,
     )
 
 

@@ -46,3 +46,18 @@ def test_seller_proceeds_is_the_largest_amount_that_fits(buyer: int) -> None:
 
 def test_seller_proceeds_below_minimum_price() -> None:
     assert seller_proceeds(2) == 0
+
+
+@pytest.mark.parametrize(
+    ("seller", "fee", "buyer"), [(100, 0.05, 110), (100, 0.0, 105), (1, 0.0, 2)]
+)
+def test_buyer_price_with_a_game_fee(seller: int, fee: float, buyer: int) -> None:
+    assert buyer_price(seller, fee) == buyer
+
+
+@pytest.mark.parametrize("fee", [0.0, 0.05, 0.15])
+@pytest.mark.parametrize("buyer", [3, 57, 1234, 99999])
+def test_seller_proceeds_with_a_game_fee(fee: float, buyer: int) -> None:
+    seller = seller_proceeds(buyer, fee)
+    assert buyer_price(seller, fee) <= buyer
+    assert buyer_price(seller + 1, fee) > buyer

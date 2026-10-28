@@ -192,6 +192,22 @@ def test_inventory(load_fixture: Callable[[str], Any]) -> None:
     assert by_name["Kilowatt Case"].marketable
     assert not by_name["5 Year Veteran Coin"].marketable
     assert all(i.amount == 1 for i in page.items)
+    assert all(i.publisher_fee is None for i in page.items)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"), [(0.05, 0.05), ("0.15", 0.15), ("x", None), (2, None)]
+)
+def test_inventory_publisher_fee(
+    load_fixture: Callable[[str], Any], value: object, expected: float | None
+) -> None:
+    payload = load_fixture("inventory.json")
+    for description in payload["descriptions"]:
+        description["market_fee"] = value
+
+    page = parse_inventory(payload)
+
+    assert {i.publisher_fee for i in page.items} == {expected}
 
 
 def test_empty_and_paginated_inventory() -> None:

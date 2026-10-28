@@ -20,6 +20,7 @@ from cs2market.core.fees import seller_proceeds
 from cs2market.core.games import CS2_APPID
 from cs2market.db import repo
 from cs2market.i18n import tr
+from cs2market.portfolio import fee_rate
 from cs2market.runtime import runtime
 from cs2market.ui.common import fmt_pct, fmt_usd, icon_url, pct_color, rarity_color
 from cs2market.ui.games import game_names, name_of
@@ -222,7 +223,8 @@ def register() -> None:
                 )
                 return
             frame = remove_outliers(raw_frame)
-            metrics = compute_metrics(frame)
+            fee = fee_rate(item)
+            metrics = compute_metrics(frame, publisher_fee=fee)
             if metrics is None:
                 ui.label(
                     tr(
@@ -340,7 +342,7 @@ def register() -> None:
 
                 def update_fee() -> None:
                     cents = round((price_input.value or 0) * 100)
-                    proceeds = seller_proceeds(cents)
+                    proceeds = seller_proceeds(cents, fee)
                     result.text = tr(
                         "You receive {proceeds}, fees {fees}",
                         proceeds=fmt_usd(proceeds / 100),

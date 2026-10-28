@@ -17,10 +17,11 @@ from cs2market.analysis import (
     recent_trend,
     to_frame,
 )
-from cs2market.core.fees import seller_proceeds
+from cs2market.core.fees import PUBLISHER_FEE_RATE
 from cs2market.core.games import CS2_APPID
 from cs2market.db import repo
 from cs2market.db.session import SessionMaker
+from cs2market.db.tables import Item
 
 # Periods offered for the portfolio's statistics, movers and chart; None = all history.
 PERIODS: dict[str, timedelta | None] = {
@@ -81,6 +82,7 @@ class PositionInput:
     pinned: bool = False
     appid: int = CS2_APPID
     name_color: str | None = None
+    publisher_fee: float = PUBLISHER_FEE_RATE
 
 
 @dataclass(frozen=True)
@@ -133,10 +135,10 @@ def value_positions(inputs: Sequence[PositionInput]) -> Portfolio:
         views = price_views(p.history) if not p.history.empty else None
         if views is not None:
             dailies[p.holding_id] = views.daily["price"]
-        metrics = compute_metrics(p.history, views)
+        metrics = compute_metrics(p.history, views, p.publisher_fee)
         prices = views.prices if views else pd.Series(dtype=float)
         price = metrics.last_price if metrics else None
-        unit_proceeds = seller_proceeds(round(price * 100)) / 100 if price is not None else None
+        unit_proceeds = metrics.proceeds_after_fee if metrics else None
         cost = float(p.buy_price_usd) * p.quantity if p.buy_price_usd is not None else None
         proceeds = unit_proceeds * p.quantity if unit_proceeds is not None else None
         rows.append(
@@ -266,6 +268,7 @@ async def _compute_portfolio(sessions: SessionMaker, appid: int | None = None) -
                 pinned=holding.pinned,
                 appid=item.appid,
                 name_color=item.name_color,
+                publisher_fee=fee_rate(item),
             )
             for holding, item in holdings
         ]
@@ -273,6 +276,11 @@ async def _compute_portfolio(sessions: SessionMaker, appid: int | None = None) -
 
 
 _EMPTY = to_frame([], {})
+
+
+def fee_rate(item: Item) -> float:
+    """The publisher's share of the market fee for an item: its game's own, or the default."""
+    return float(item.publisher_fee) if item.publisher_fee is not None else PUBLISHER_FEE_RATE
 
 
 def _frame_or_empty(points: Sequence[repo.StoredPoint], fx: Mapping[int, Decimal]) -> pd.DataFrame:

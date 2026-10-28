@@ -152,3 +152,13 @@ async def test_game_that_failed_to_load_keeps_its_positions(session: AsyncSessio
 
     await repo.sync_inventory(session, [inv("Kilowatt Case")])
     assert set(await active(session)) == {"Kilowatt Case"}
+
+
+async def test_game_fee_from_the_inventory_is_stored(session: AsyncSession) -> None:
+    own_fee = InventoryItem("Hoodie", "Hoodie", None, "9", None, True, 1, publisher_fee=0.05)
+    await repo.sync_inventory(session, [own_fee, inv("Kilowatt Case")])
+
+    holdings = await repo.active_holdings(session)
+    fees = {item.market_hash_name: item.publisher_fee for _, item in holdings}
+
+    assert fees == {"Hoodie": Decimal("0.0500"), "Kilowatt Case": None}

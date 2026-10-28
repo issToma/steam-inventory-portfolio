@@ -564,6 +564,8 @@ async def sync_inventory(
             name_color=entry.name_color,
         )
         item = await _track(session, name, found)
+        if entry.publisher_fee is not None:
+            item.publisher_fee = Decimal(str(entry.publisher_fee))
         present.add(item.id)
         stmt = insert(Holding).values(
             item_id=item.id, source=SOURCE_INVENTORY, quantity=quantity, removed_at=None

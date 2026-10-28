@@ -89,6 +89,17 @@ def _rarity_color(description: dict[str, Any]) -> str | None:
     return _color(description.get("name_color"))
 
 
+def _fraction(value: object) -> float | None:
+    """A fee share such as 0.1 or "0.10"; None when missing or not between 0 and 1."""
+    if isinstance(value, bool):
+        return None
+    try:
+        fraction = float(value)  # type: ignore[arg-type]
+    except TypeError, ValueError:
+        return None
+    return fraction if 0 <= fraction < 1 else None
+
+
 def _require(payload: Any, key: str, kind: type | tuple[type, ...], source: str) -> Any:
     if not isinstance(payload, dict) or not isinstance(payload.get(key), kind):
         raise SteamFormatError(f"{source}: missing or malformed field {key!r}")
@@ -314,6 +325,8 @@ class InventoryItem:
     amount: int
     appid: int = CS2_APPID
     name_color: str | None = None
+    # The game's own market fee share, when it differs from Steam's default.
+    publisher_fee: float | None = None
 
 
 @dataclass(frozen=True)
@@ -353,6 +366,7 @@ def parse_inventory(payload: Any) -> InventoryPage:
                 amount=int(_require(asset, "amount", str, source)),
                 appid=int(description.get("appid", CS2_APPID)),
                 name_color=_rarity_color(description),
+                publisher_fee=_fraction(description.get("market_fee")),
             )
         )
     more = payload.get("more_items") == 1
