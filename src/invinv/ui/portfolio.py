@@ -154,19 +154,19 @@ def register() -> None:
                 # Side by side on wide screens; the period group wraps below on narrow ones.
                 # Each group's share of the row follows its number of cards (_fit_cards).
                 with ui.row().classes("w-full gap-x-10 gap-y-4 items-stretch"):
-                    with ui.column().classes("gap-1") as now_group:
+                    with ui.column().classes("gap-1 self-stretch") as now_group:
                         ui.label(tr("Now")).classes("text-overline text-muted")
-                        totals = ui.row().classes("w-full gap-3 items-stretch no-wrap")
+                        totals = ui.row().classes("w-full gap-3 items-stretch no-wrap grow")
                         with totals:
                             for _ in range(3):
                                 ui.skeleton(height="6.75rem").classes("flex-1")
                         _fit_cards(now_group, 3)
-                    with ui.column().classes("gap-1") as period_group:
+                    with ui.column().classes("gap-1 self-stretch") as period_group:
                         _fit_cards(period_group, 3)
                         with ui.row().classes("items-baseline gap-2"):
                             period_caption = ui.label().classes("text-overline text-primary")
                             period_since = ui.label().classes("text-caption text-muted")
-                        stats = ui.row().classes("w-full gap-3 items-stretch no-wrap")
+                        stats = ui.row().classes("w-full gap-3 items-stretch no-wrap grow")
                 chart_skeleton = ui.skeleton(height="18rem").classes("w-full")
                 chart = ui.echart({}).classes("w-full h-72")
                 chart.set_visibility(False)

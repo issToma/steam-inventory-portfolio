@@ -42,16 +42,20 @@ def to_frame(
     are converted back with the latest Steam rate (docs/SPEC.md, section 4.2). Outliers
     (see remove_outliers) are dropped unless asked otherwise.
     """
-    rows = []
-    for p in points:
-        if p.currency == USD:
-            rate = Decimal(1)
-        elif p.currency in fx:
-            rate = fx[p.currency]
-        else:
-            raise MissingRateError(p.currency)
-        rows.append((p.ts, p.resolution, float(p.price * rate), p.volume))
-    frame = pd.DataFrame(rows, columns=["ts", "resolution", "price", "volume"])
+    rates: dict[int, float] = {USD: 1.0}
+    for currency in {p.currency for p in points} - {USD}:
+        if currency not in fx:
+            raise MissingRateError(currency)
+        rates[currency] = float(fx[currency])
+    frame = pd.DataFrame(
+        {
+            "ts": [p.ts for p in points],
+            "resolution": [p.resolution for p in points],
+            "price": [float(p.price) * rates[p.currency] for p in points],
+            "volume": [p.volume for p in points],
+        },
+        columns=["ts", "resolution", "price", "volume"],
+    )
     frame["ts"] = pd.to_datetime(frame["ts"], utc=True)
     return remove_outliers(frame) if drop_outliers else frame
 
@@ -98,11 +102,13 @@ def hourly_series(frame: pd.DataFrame) -> pd.DataFrame:
     return hourly.set_index("ts")[["price", "volume"]].sort_index()
 
 
-def daily_series(frame: pd.DataFrame) -> pd.DataFrame:
+def daily_series(frame: pd.DataFrame, hourly: pd.DataFrame | None = None) -> pd.DataFrame:
     """One row per day: Steam's daily points, plus hourly points aggregated for the days
-    Steam only has hourly data for (price is volume-weighted, volume is summed)."""
+    Steam only has hourly data for (price is volume-weighted, volume is summed).
+    `hourly` is hourly_series(frame) when already built."""
     daily = frame[frame["resolution"] == "day"].set_index("ts")[["price", "volume"]]
-    hourly = hourly_series(frame)
+    if hourly is None:
+        hourly = hourly_series(frame)
     if not hourly.empty:
         weighted = (hourly["price"] * hourly["volume"]).resample("D").sum()
         volume = hourly["volume"].resample("D").sum()
@@ -129,8 +135,8 @@ class PriceViews:
 
 
 def price_views(frame: pd.DataFrame) -> PriceViews:
-    daily = daily_series(frame)
     hourly = hourly_series(frame)
+    daily = daily_series(frame, hourly)
     prices = daily["price"]
     if not hourly.empty:
         prices = pd.concat([prices[prices.index < hourly.index[0]], hourly["price"]])
@@ -173,12 +179,17 @@ def ema(series: pd.Series, window: int) -> pd.Series:
     return series.ewm(span=window, adjust=False).mean()
 
 
-def recent_trend(frame: pd.DataFrame, days: int = 7, bucket: str = "6h") -> list[float]:
+def recent_trend(
+    frame: pd.DataFrame, days: int = 7, bucket: str = "6h", views: PriceViews | None = None
+) -> list[float]:
     """Prices of the last few days, averaged per bucket, for a small trend line."""
     if frame.empty:
         return []
-    hourly = hourly_series(frame)["price"]
-    series = hourly if not hourly.empty else daily_series(frame)["price"]
+    hourly = (views.hourly if views else hourly_series(frame))["price"]
+    if not hourly.empty:
+        series = hourly
+    else:
+        series = (views.daily if views else daily_series(frame))["price"]
     recent = series[series.index >= series.index[-1] - timedelta(days=days)]
     return [float(v) for v in recent.resample(bucket).mean().dropna()]
 

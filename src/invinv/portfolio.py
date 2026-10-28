@@ -5,10 +5,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import timedelta
 from decimal import Decimal
+from itertools import batched
 
 import pandas as pd
 
 from invinv.analysis import (
+    Metrics,
     MissingRateError,
     change_over,
     compute_metrics,
@@ -82,6 +84,29 @@ class PositionInput:
     appid: int = field(kw_only=True)
     name_color: str | None = None
     publisher_fee: float = PUBLISHER_FEE_RATE
+    # Computed from `history` when not given; the app passes cached ones (ItemPrices).
+    prices: ItemPrices | None = None
+
+
+@dataclass(frozen=True)
+class ItemPrices:
+    """What the valuation needs from one item's price history, computed once per history."""
+
+    metrics: Metrics | None
+    daily: pd.Series | None  # daily price, for the portfolio's value over time
+    trend: tuple[float, ...]
+    changes: tuple[tuple[str, float | None], ...]  # per key of PERIODS
+
+
+def item_prices(history: pd.DataFrame, publisher_fee: float = PUBLISHER_FEE_RATE) -> ItemPrices:
+    views = price_views(history) if not history.empty else None
+    prices = views.prices if views else pd.Series(dtype=float)
+    return ItemPrices(
+        metrics=compute_metrics(history, views, publisher_fee),
+        daily=views.daily["price"] if views else None,
+        trend=tuple(recent_trend(history, views=views)),
+        changes=tuple((key, change_over(prices, span)) for key, span in PERIODS.items()),
+    )
 
 
 @dataclass(frozen=True)
@@ -131,11 +156,10 @@ def value_positions(inputs: Sequence[PositionInput]) -> Portfolio:
     rows = []
     dailies: dict[int, pd.Series] = {}
     for p in inputs:
-        views = price_views(p.history) if not p.history.empty else None
-        if views is not None:
-            dailies[p.holding_id] = views.daily["price"]
-        metrics = compute_metrics(p.history, views, p.publisher_fee)
-        prices = views.prices if views else pd.Series(dtype=float)
+        computed = p.prices or item_prices(p.history, p.publisher_fee)
+        if computed.daily is not None:
+            dailies[p.holding_id] = computed.daily
+        metrics = computed.metrics
         price = metrics.last_price if metrics else None
         unit_proceeds = metrics.proceeds_after_fee if metrics else None
         cost = float(p.buy_price_usd) * p.quantity if p.buy_price_usd is not None else None
@@ -149,7 +173,7 @@ def value_positions(inputs: Sequence[PositionInput]) -> Portfolio:
                 cost,
                 proceeds - cost if proceeds is not None and cost is not None else None,
                 metrics,
-                prices,
+                computed,
             )
         )
     total = sum(value for _, _, value, *_ in rows if value is not None)
@@ -173,13 +197,13 @@ def value_positions(inputs: Sequence[PositionInput]) -> Portfolio:
             icon_url=p.icon_url,
             rarity=p.rarity,
             quality=p.quality,
-            trend=tuple(recent_trend(p.history)),
+            trend=computed.trend,
             pinned=p.pinned,
             appid=p.appid,
             name_color=p.name_color,
-            changes=tuple((key, change_over(prices, span)) for key, span in PERIODS.items()),
+            changes=computed.changes,
         )
-        for p, price, value, proceeds, cost, pnl, metrics, prices in rows
+        for p, price, value, proceeds, cost, pnl, metrics, computed in rows
     ]
     positions.sort(key=lambda pos: pos.value or 0, reverse=True)
     with_pnl = [pos for pos in positions if pos.pnl is not None]
@@ -205,10 +229,12 @@ def value_history(
     """
     columns = {}
     for p in inputs:
-        if p.history.empty:
-            continue
         daily = dailies.get(p.holding_id) if dailies else None
-        price = (daily if daily is not None else daily_series(p.history)["price"]).copy()
+        if daily is None:
+            if p.history.empty:
+                continue
+            daily = daily_series(p.history)["price"]
+        price = daily.copy()
         price.index = pd.DatetimeIndex(price.index).normalize()
         columns[p.holding_id] = price * p.quantity
     if not columns:
@@ -240,6 +266,15 @@ async def load_portfolio(sessions: SessionMaker, appid: int | None = None) -> Po
         return portfolio
 
 
+# Computed prices per item, with the (history stamp, rates, fee) they were computed from.
+# While a big inventory loads, one item's history changes at a time; only that item is
+# computed again.
+_item_cache: dict[int, tuple[tuple[object, ...], ItemPrices]] = {}
+# Items whose histories are read from the database and computed in one go; between batches
+# the event loop serves the UI.
+_BATCH = 25
+
+
 async def _compute_portfolio(sessions: SessionMaker, appid: int | None = None) -> Portfolio:
     async with sessions() as session:
         holdings = [
@@ -248,30 +283,52 @@ async def _compute_portfolio(sessions: SessionMaker, appid: int | None = None) -
             if appid is None or item.appid == appid
         ]
         fx = await repo.latest_fx(session)
-        points = await repo.load_histories(session, list({item.id for _, item in holdings}))
-    histories = {item_id: _frame_or_empty(rows, fx) for item_id, rows in points.items()}
-    return value_positions(
-        [
-            PositionInput(
-                holding_id=holding.id,
-                item_id=item.id,
-                name=item.market_hash_name,
-                source=holding.source,
-                location=holding.location,
-                quantity=holding.quantity,
-                buy_price_usd=holding.buy_price_usd,
-                history=histories.get(item.id, _EMPTY),
-                icon_url=item.icon_url,
-                rarity=item.rarity,
-                quality=item.quality,
-                pinned=holding.pinned,
-                appid=item.appid,
-                name_color=item.name_color,
-                publisher_fee=fee_rate(item),
-            )
-            for holding, item in holdings
-        ]
-    )
+        item_ids = list({item.id for _, item in holdings})
+        stamps = await repo.history_stamps(session, item_ids)
+    fees = {item.id: fee_rate(item) for _, item in holdings}
+    rates = tuple(sorted(fx.items()))
+    keys = {item_id: (stamps.get(item_id), rates, fees[item_id]) for item_id in item_ids}
+    stale = [i for i in item_ids if i not in _item_cache or _item_cache[i][0] != keys[i]]
+    for batch in batched(stale, _BATCH, strict=False):
+        async with sessions() as session:
+            points = await repo.load_histories(session, list(batch))
+        # pandas work runs in a thread so that the UI stays responsive meanwhile.
+        computed = await asyncio.to_thread(_compute_items, points, fx, fees)
+        for item_id, prices in computed.items():
+            _item_cache[item_id] = (keys[item_id], prices)
+    inputs = [
+        PositionInput(
+            holding_id=holding.id,
+            item_id=item.id,
+            name=item.market_hash_name,
+            source=holding.source,
+            location=holding.location,
+            quantity=holding.quantity,
+            buy_price_usd=holding.buy_price_usd,
+            history=_EMPTY,
+            icon_url=item.icon_url,
+            rarity=item.rarity,
+            quality=item.quality,
+            pinned=holding.pinned,
+            appid=item.appid,
+            name_color=item.name_color,
+            publisher_fee=fees[item.id],
+            prices=_item_cache[item.id][1],
+        )
+        for holding, item in holdings
+    ]
+    return await asyncio.to_thread(value_positions, inputs)
+
+
+def _compute_items(
+    points: Mapping[int, Sequence[repo.StoredPoint]],
+    fx: Mapping[int, Decimal],
+    fees: Mapping[int, float],
+) -> dict[int, ItemPrices]:
+    return {
+        item_id: item_prices(_frame_or_empty(rows, fx), fees[item_id])
+        for item_id, rows in points.items()
+    }
 
 
 _EMPTY = to_frame([], {})

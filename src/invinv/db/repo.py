@@ -856,6 +856,16 @@ async def portfolio_fingerprint(session: AsyncSession) -> tuple[object, ...]:
     return tuple(result.one())
 
 
+async def history_stamps(session: AsyncSession, item_ids: list[int]) -> dict[int, datetime]:
+    """When each item's price history was last stored; a new value means a changed history."""
+    result = await session.execute(
+        select(PricePoint.item_id, func.max(PricePoint.fetched_at))
+        .where(PricePoint.item_id.in_(item_ids))
+        .group_by(PricePoint.item_id)
+    )
+    return {item_id: fetched_at for item_id, fetched_at in result}
+
+
 async def load_histories(
     session: AsyncSession, item_ids: list[int]
 ) -> dict[int, list[StoredPoint]]:
