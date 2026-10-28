@@ -85,6 +85,10 @@ RU: dict[str, str] = {
     "Connect Steam": "Подключить Steam",
     # Settings
     "Appearance": "Внешний вид",
+    "Games": "Игры",
+    "The games of your inventory appear here after the first import.": "Игры вашего инвентаря появятся здесь после первого импорта.",
+    "Choose which games' inventories are imported. Changes apply at the next sync.": "Выберите, инвентари каких игр импортировать. Изменения применятся при следующей синхронизации.",
+    "Saved; the inventory is synced again now.": "Сохранено; инвентарь сейчас синхронизируется заново.",
     "Data collection": "Сбор данных",
     "Collector": "Сборщик",
     "running": "работает",
@@ -188,6 +192,8 @@ RU: dict[str, str] = {
     ),
     "Add to portfolio": "В портфель",
     "Add item": "Добавить предмет",
+    "All games": "Все игры",
+    "Game": "Игра",
     "Pinned positions stay when items leave the inventory, for example into a storage unit.": (
         "Закреплённые позиции остаются, когда предметы уходят из инвентаря, например в хранилище."
     ),

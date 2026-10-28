@@ -17,11 +17,13 @@ from cs2market.analysis import (
 )
 from cs2market.core.currency import USD, currency_name
 from cs2market.core.fees import seller_proceeds
+from cs2market.core.games import CS2_APPID
 from cs2market.db import repo
 from cs2market.i18n import tr
 from cs2market.runtime import runtime
 from cs2market.ui.common import fmt_pct, fmt_usd, icon_url, pct_color, rarity_color
-from cs2market.ui.layout import echart_theme, page_frame
+from cs2market.ui.games import game_names, name_of
+from cs2market.ui.layout import page_frame, themed_chart
 from cs2market.ui.portfolio import GRID_COLOR
 from cs2market.ui.positions import add_position
 
@@ -146,9 +148,9 @@ def _stat(label: str, value: str, color: str = "") -> None:
 def register() -> None:
     # Registered before /item/{item_id}, which would otherwise reject "by-name" as an id.
     @ui.page("/item/by-name")
-    async def item_by_name(name: str) -> RedirectResponse:
+    async def item_by_name(name: str, appid: int = CS2_APPID) -> RedirectResponse:
         async with runtime.sessions() as session:
-            item = await repo.get_or_create_item(session, name)
+            item = await repo.get_or_create_item(session, name, appid)
             await session.commit()
         return RedirectResponse(f"/item/{item.id}")
 
@@ -171,12 +173,13 @@ def register() -> None:
                 if image:
                     ui.image(image).classes("w-40 h-28").props("fit=contain")
                 with ui.column().classes("gap-1"):
-                    color = rarity_color(item.rarity, item.quality)
+                    color = rarity_color(item.rarity, item.quality, item.name_color, item.appid)
                     ui.label(item.market_hash_name).classes("text-h5").style(
                         f"color: {color}" if color else ""
                     )
+                    game = name_of(item.appid, await game_names())
                     traits = " · ".join(
-                        t for t in (item.item_type, item.exterior, item.collection) if t
+                        t for t in (game, item.item_type, item.exterior, item.collection) if t
                     )
                     if traits:
                         ui.label(traits).classes("text-muted")
@@ -187,12 +190,14 @@ def register() -> None:
                     if watched:
                         await repo.remove_from_watchlist(session, item_id)
                     else:
-                        await repo.add_to_watchlist(session, item.market_hash_name)
+                        await repo.add_to_watchlist(
+                            session, item.market_hash_name, appid=item.appid
+                        )
                     await session.commit()
                 ui.navigate.reload()
 
             async def add_to_portfolio() -> None:
-                if await add_position(item.market_hash_name):
+                if await add_position(item.market_hash_name, appid=item.appid):
                     ui.navigate.reload()
 
             with ui.row().classes("gap-2"):
@@ -278,16 +283,22 @@ def register() -> None:
                     ui.number(value=20, min=2, max=500, step=1).props("dense").classes("w-20")
                 )
 
-            chart = ui.echart({}, theme=echart_theme()).classes("w-full h-[520px]")
+            chart = ui.echart({}).classes("w-full h-[520px]")
 
             def redraw() -> None:
                 series = _select(frame if outliers_switch.value else raw_frame, range_toggle.value)
                 chart.options.clear()
                 chart.options.update(
-                    _chart_options(
-                        series,
-                        int(sma_window.value) if sma_switch.value and sma_window.value else None,
-                        int(ema_window.value) if ema_switch.value and ema_window.value else None,
+                    themed_chart(
+                        _chart_options(
+                            series,
+                            int(sma_window.value)
+                            if sma_switch.value and sma_window.value
+                            else None,
+                            int(ema_window.value)
+                            if ema_switch.value and ema_window.value
+                            else None,
+                        )
                     )
                 )
                 chart.update()

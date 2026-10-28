@@ -19,6 +19,7 @@ async def health() -> dict[str, str]:
 @router.get("/search")
 async def search(
     q: str = "",
+    appid: int = 730,
     kind: ItemKind | None = None,
     quality: Quality | None = None,
     exterior: Exterior | None = None,
@@ -26,7 +27,7 @@ async def search(
 ) -> list[dict[str, Any]]:
     """Search items. source=steam asks Steam (at most 10 results, ahead of background
     requests); source=local searches the catalog of items seen before, instantly."""
-    query = SearchQuery(q, kind=kind, quality=quality, exterior=exterior)
+    query = SearchQuery(q, appid=appid, kind=kind, quality=quality, exterior=exterior)
     if source == "local":
         return [asdict(r) for r in await search_local(query)]
     try:

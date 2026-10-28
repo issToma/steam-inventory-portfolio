@@ -293,3 +293,11 @@ def test_inventory_items_carry_game_and_colour(load_fixture: Callable[[str], Any
 
     assert {i.appid for i in items} == {730}
     assert all(i.name_color is None or i.name_color.startswith("#") for i in items)
+
+
+def test_inventory_colour_comes_from_the_rarity_tag(load_fixture: Callable[[str], Any]) -> None:
+    items = {i.market_hash_name: i for i in parse_inventory(load_fixture("inventory.json")).items}
+
+    # G3SG1 | Polar Camo is Consumer Grade: the colour of its Rarity tag.
+    assert items["G3SG1 | Polar Camo (Minimal Wear)"].name_color == "#b0c3d9"
+    assert items["5 Year Veteran Coin"].name_color == "#eb4b4b"

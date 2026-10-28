@@ -3,7 +3,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import quote
 
 from nicegui import app, ui
@@ -67,7 +67,10 @@ NAV_BOTTOM: list[NavItem] = [NavItem("settings", "Settings", "settings", "/setti
 
 
 def current_theme() -> Theme:
-    theme = app.storage.user.get("theme", DEFAULT_THEME)
+    try:
+        theme = app.storage.user.get("theme", DEFAULT_THEME)
+    except RuntimeError:  # outside a page request, e.g. in tests
+        return DEFAULT_THEME
     return theme if theme in THEMES else DEFAULT_THEME
 
 
@@ -85,9 +88,41 @@ def is_dark() -> bool:
     return current_theme() != "light"
 
 
-def echart_theme() -> str | None:
-    """ECharts' built-in theme matching the page; charts set a transparent background."""
-    return "dark" if is_dark() else None
+# Chart colours per theme: text, muted text, lines, tooltip background (GitHub palettes).
+_CHART_COLORS: dict[Theme, tuple[str, str, str, str]] = {
+    "dark": ("#e6edf3", "#8d96a0", "#30363d", "#161b22"),
+    "dim": ("#adbac7", "#768390", "#444c56", "#2d333b"),
+    "light": ("#1f2328", "#59636e", "#d0d7de", "#ffffff"),
+}
+
+
+def themed_chart(options: dict[str, Any]) -> dict[str, Any]:
+    """Colour an ECharts option's text, axes, legend and tooltip for the current theme."""
+    text, muted, line, surface = _CHART_COLORS[current_theme()]
+    options = {**options, "textStyle": {"color": text}}
+    for key in ("xAxis", "yAxis"):
+        axes = options.get(key)
+        if axes is None:
+            continue
+        styled = [
+            {
+                **axis,
+                "axisLabel": {**axis.get("axisLabel", {}), "color": muted},
+                "axisLine": {"lineStyle": {"color": line}},
+            }
+            for axis in (axes if isinstance(axes, list) else [axes])
+        ]
+        options[key] = styled if isinstance(axes, list) else styled[0]
+    if "legend" in options:
+        options["legend"] = {**options["legend"], "textStyle": {"color": text}}
+    if "tooltip" in options:
+        options["tooltip"] = {
+            **options["tooltip"],
+            "backgroundColor": surface,
+            "borderColor": line,
+            "textStyle": {"color": text},
+        }
+    return options
 
 
 @contextmanager
@@ -139,8 +174,8 @@ def _nav(items: list[NavItem], active: str) -> None:
                 ui.label(tr(item.label))
 
 
-def item_url(market_hash_name: str) -> str:
-    return f"/item/by-name?name={quote(market_hash_name)}"
+def item_url(market_hash_name: str, appid: int) -> str:
+    return f"/item/by-name?appid={appid}&name={quote(market_hash_name)}"
 
 
 def _global_search() -> None:
@@ -159,7 +194,9 @@ def _global_search() -> None:
     async def update() -> None:
         nonlocal results
         text = (box.value or "").strip()
-        results = await search_local(SearchQuery(text), limit=8) if len(text) >= 2 else []
+        results = (
+            await search_local(SearchQuery(text, appid=None), limit=8) if len(text) >= 2 else []
+        )
         menu.clear()
         if not results:
             menu.close()
@@ -168,13 +205,13 @@ def _global_search() -> None:
             for result in results:
                 ui.menu_item(
                     result.market_hash_name,
-                    on_click=lambda r=result: ui.navigate.to(item_url(r.market_hash_name)),
+                    on_click=lambda r=result: ui.navigate.to(item_url(r.market_hash_name, r.appid)),
                 )
         menu.open()
 
     def open_first() -> None:
         if results:
-            ui.navigate.to(item_url(results[0].market_hash_name))
+            ui.navigate.to(item_url(results[0].market_hash_name, results[0].appid))
 
     box.on_value_change(update)
     box.on("keydown.enter", open_first)

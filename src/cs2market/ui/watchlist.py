@@ -17,6 +17,7 @@ from cs2market.ui.common import (
     rarity_color,
     sparkline_points,
 )
+from cs2market.ui.games import GameSwitch, game_names, searchable_games
 from cs2market.ui.layout import page_frame
 from cs2market.ui.search_box import search_box
 
@@ -48,9 +49,10 @@ async def _rows() -> list[dict[str, Any]]:
         for item in items:
             row: dict[str, Any] = {
                 "id": item.id,
+                "appid": item.appid,
                 "name": item.market_hash_name,
                 "icon": icon_url(item.icon_url),
-                "color": rarity_color(item.rarity, item.quality),
+                "color": rarity_color(item.rarity, item.quality, item.name_color, item.appid),
             }
             job = jobs.get(item.id)
             points = await repo.load_history(session, item.id, since)
@@ -95,6 +97,7 @@ def register() -> None:
                     ui.label(tr("Items you follow without owning them.")).classes("text-muted")
                 ui.space()
                 ui.button(tr("Add item"), icon="add", on_click=lambda: open_add_dialog())
+            games = GameSwitch(on_change=lambda: refresh())
 
             async def watched() -> set[str]:
                 async with runtime.sessions() as session:
@@ -113,7 +116,7 @@ def register() -> None:
                 await refresh()
                 return True
 
-            def open_add_dialog() -> None:
+            async def open_add_dialog() -> None:
                 with ui.dialog() as dialog, ui.card().classes("w-[48rem] max-w-full"):
                     ui.label(tr("Add to watchlist")).classes("text-h6")
                     search_box(
@@ -121,6 +124,7 @@ def register() -> None:
                         on_pick=add,
                         already=watched,
                         already_label=tr("In watchlist"),
+                        games=await searchable_games(),
                     )
                 dialog.open()
 
@@ -151,7 +155,9 @@ def register() -> None:
             table.on("remove", remove)
 
             async def refresh() -> None:
-                table.rows = await _rows()
+                rows = await _rows()
+                games.set_games((row["appid"] for row in rows), await game_names())
+                table.rows = [r for r in rows if games.appid in (None, r["appid"])]
                 table.props(remove="loading")
                 table.update()
 

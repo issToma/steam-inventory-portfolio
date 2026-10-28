@@ -3,11 +3,13 @@
 Typing searches the local catalog instantly; Enter or "Search Steam" asks Steam.
 """
 
+import re
 from collections.abc import Awaitable, Callable
 from typing import cast
 
 from nicegui import ui
 
+from cs2market.core.games import CS2_APPID, game_name
 from cs2market.core.http import SteamBusyError, SteamError
 from cs2market.core.parsers import (
     SearchResult,
@@ -68,9 +70,11 @@ def search_box(
     on_pick: Callable[[SearchResult], Awaitable[bool]],
     already: Callable[[], Awaitable[set[str]]] | None = None,
     already_label: str = "",
+    games: dict[int, str] | None = None,
 ) -> None:
     """Render the search UI. `on_pick` returns True when the item was added; items whose
-    names `already` returns get a disabled `already_label` button instead."""
+    names `already` returns get a disabled `already_label` button instead. `games` (app id
+    to name) offers a choice of game; CS2 is preselected."""
 
     async def pick(result: SearchResult, button: ui.button) -> None:
         if await on_pick(result):
@@ -84,6 +88,10 @@ def search_box(
         ).classes("grow")
         steam_button = ui.button(tr("Search Steam"), icon="travel_explore")
     with ui.row().classes("items-center gap-4"):
+        game_select = ui.select(
+            games or {CS2_APPID: game_name(CS2_APPID)}, value=CS2_APPID, label=tr("Game")
+        ).props("dense outlined")
+        game_select.set_visibility(games is not None and len(games) > 1)
         kind_select = ui.select(kind_options(), value=ANY).props("dense outlined")
         quality_toggle = ui.toggle(quality_options(), value=ANY).props("dense no-caps")
         exterior_toggle = ui.toggle(exterior_options(), value=ANY).props("dense no-caps")
@@ -103,7 +111,9 @@ def search_box(
                     if result.icon_url:
                         ui.image(ICON_URL.format(result.icon_url)).classes("w-12 h-9")
                     traits = parse_item_traits(result.market_hash_name, result.item_type)
-                    color = rarity_color(traits.rarity, traits.quality)
+                    color = rarity_color(
+                        traits.rarity, traits.quality, result.name_color, result.appid
+                    )
                     with ui.column().classes("grow gap-0"):
                         ui.label(result.market_hash_name).style(f"color: {color}" if color else "")
                         ui.label(result.item_type).classes("text-caption text-muted")
@@ -131,8 +141,13 @@ def search_box(
             status.text = tr("That does not look like a market link to a single item.")
             return None
         if raw.startswith("http"):
-            # A pasted URL names one exact item; filters could only hide it.
-            return SearchQuery(text)
+            # A pasted URL names one exact item and its game; filters could only hide it.
+            url_game = re.search(r"/listings/(\d+)/", raw)
+            return SearchQuery(text, appid=int(url_game.group(1)) if url_game else CS2_APPID)
+        appid = int(game_select.value)
+        if appid != CS2_APPID:
+            # Type, quality and wear filters are CS2's.
+            return SearchQuery(text, appid=appid) if len(text) >= 2 else None
         kind = None if kind_select.value == ANY else cast(ItemKind, kind_select.value)
         if len(text) < 2 and kind is None:
             status.text = ""
@@ -193,6 +208,16 @@ def search_box(
             else tr("Steam found nothing. Check the spelling or loosen the filters.")
         )
 
+    async def game_changed() -> None:
+        cs2 = game_select.value == CS2_APPID
+        kind_select.set_visibility(cs2)
+        if cs2:
+            await kind_changed()
+        else:
+            quality_toggle.set_visibility(False)
+            exterior_toggle.set_visibility(False)
+            await find_local()
+
     async def kind_changed() -> None:
         # Wear and StatTrak/Souvenir exist only for skins; reset hidden filters so
         # they cannot silently exclude stickers, cases and the like.
@@ -206,6 +231,7 @@ def search_box(
                 quality_toggle.set_value(ANY)
         await find_local()
 
+    game_select.on_value_change(game_changed)
     query_input.on_value_change(find_local)
     query_input.on("keydown.enter", find_on_steam)
     steam_button.on_click(find_on_steam)

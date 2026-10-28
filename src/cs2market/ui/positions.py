@@ -6,6 +6,7 @@ from decimal import Decimal, InvalidOperation
 
 from nicegui import ui
 
+from cs2market.core.games import CS2_APPID
 from cs2market.core.parsers import SearchResult
 from cs2market.db import repo
 from cs2market.i18n import tr
@@ -81,7 +82,9 @@ async def position_dialog(
     return result
 
 
-async def add_position(market_hash_name: str, found: SearchResult | None = None) -> bool:
+async def add_position(
+    market_hash_name: str, found: SearchResult | None = None, appid: int = CS2_APPID
+) -> bool:
     """Ask for the details of a new manual position and save it. True when saved."""
     form = await position_dialog(market_hash_name, manual=True)
     if not isinstance(form, PositionForm):
@@ -95,6 +98,7 @@ async def add_position(market_hash_name: str, found: SearchResult | None = None)
             buy_price_usd=form.buy_price_usd,
             bought_at=form.bought_at,
             found=found,
+            appid=appid,
         )
         await session.commit()
     ui.notify(tr("Added {name}", name=market_hash_name))

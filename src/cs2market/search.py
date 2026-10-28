@@ -4,6 +4,7 @@ import asyncio
 import time
 from dataclasses import dataclass, replace
 
+from cs2market.core.games import CS2_APPID
 from cs2market.core.parsers import SearchResult
 from cs2market.core.steam import CATEGORY_BY_KIND, EXTERIOR_NAMES, Exterior, ItemKind, Quality
 from cs2market.db import repo
@@ -19,6 +20,8 @@ STEAM_CACHE_TTL = 600.0
 @dataclass(frozen=True)
 class SearchQuery:
     text: str
+    # The game to search; the local catalog searches every game when None, Steam searches CS2.
+    appid: int | None = CS2_APPID
     kind: ItemKind | None = None
     quality: Quality | None = None
     exterior: Exterior | None = None
@@ -36,6 +39,7 @@ async def search_local(query: SearchQuery, limit: int = 20) -> list[SearchResult
             category=CATEGORY_BY_KIND[query.kind] if query.kind else None,
             quality=query.quality,
             exterior_name=EXTERIOR_NAMES[query.exterior] if query.exterior else None,
+            appid=query.appid,
             limit=limit,
         )
     return [
@@ -47,6 +51,8 @@ async def search_local(query: SearchQuery, limit: int = 20) -> list[SearchResult
             icon_url=e.icon_url,
             sell_listings=e.sell_listings,
             sell_price_usd_cents=e.sell_price_usd_cents,
+            appid=e.appid,
+            name_color=e.name_color,
         )
         for e in entries
     ]
@@ -64,6 +70,7 @@ async def search_steam(query: SearchQuery) -> list[SearchResult]:
     results = await asyncio.wait_for(
         runtime.market.search(
             query.text,
+            appid=query.appid or CS2_APPID,
             kind=query.kind,
             quality=query.quality,
             exterior=query.exterior,
@@ -85,6 +92,8 @@ async def search_steam(query: SearchQuery) -> list[SearchResult]:
                     icon_url=r.icon_url,
                     sell_price_usd_cents=r.sell_price_usd_cents,
                     sell_listings=r.sell_listings,
+                    appid=r.appid,
+                    name_color=r.name_color,
                 )
                 for r in results
             ],

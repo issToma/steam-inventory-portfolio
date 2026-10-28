@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+from cs2market.core.games import CS2_APPID
 from cs2market.i18n import tr, tr_n
 
 
@@ -66,10 +67,18 @@ STAR_COLOR = "#8650ac"
 ICON_URL = "https://community.akamai.steamstatic.com/economy/image/{icon}/{size}"
 
 
-def rarity_color(rarity: str | None, quality: str | None) -> str | None:
+def rarity_color(
+    rarity: str | None,
+    quality: str | None,
+    name_color: str | None = None,
+    appid: int = CS2_APPID,
+) -> str | None:
+    """CS2 items are coloured by our rarity table; other games by Steam's own colour."""
+    if appid != CS2_APPID:
+        return name_color
     if quality and "★" in quality:
         return STAR_COLOR
-    return RARITY_COLORS.get(rarity or "")
+    return RARITY_COLORS.get(rarity or "") or name_color
 
 
 def icon_url(icon: str | None, size: str = "96fx72f") -> str | None:

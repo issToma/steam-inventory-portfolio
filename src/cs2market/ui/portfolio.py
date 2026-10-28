@@ -27,7 +27,8 @@ from cs2market.ui.common import (
     time_ago,
     time_until,
 )
-from cs2market.ui.layout import echart_theme, page_frame
+from cs2market.ui.games import GameSwitch, game_names, searchable_games
+from cs2market.ui.layout import page_frame, themed_chart
 from cs2market.ui.positions import DELETE, PositionForm, add_position, position_dialog
 from cs2market.ui.search_box import search_box
 
@@ -73,7 +74,7 @@ def _row(p: Position) -> dict[str, Any]:
         "item_id": p.item_id,
         "name": p.name,
         "icon": icon_url(p.icon_url),
-        "color": rarity_color(p.rarity, p.quality),
+        "color": rarity_color(p.rarity, p.quality, p.name_color, p.appid),
         "spark": sparkline_points(list(p.trend)),
         "spark_up": len(p.trend) < 2 or p.trend[-1] >= p.trend[0],
         "where": tr("Inventory")
@@ -136,6 +137,7 @@ def register() -> None:
                 ui.button(tr("Add item"), icon="add", on_click=lambda: open_add_dialog())
 
             banner = ui.column().classes("w-full")
+            games = GameSwitch(on_change=lambda: refresh())
 
             # --- Totals now and for the period chosen in the card's header -------------
             # The period cards carry the period in their caption and the toggle's colour, so
@@ -160,7 +162,7 @@ def register() -> None:
                             period_since = ui.label().classes("text-caption text-muted")
                         stats = ui.row().classes("w-full gap-3 items-stretch no-wrap")
                 chart_skeleton = ui.skeleton(height="18rem").classes("w-full")
-                chart = ui.echart({}, theme=echart_theme()).classes("w-full h-72")
+                chart = ui.echart({}).classes("w-full h-72")
                 chart.set_visibility(False)
             movers = ui.row().classes("w-full gap-3")
 
@@ -207,7 +209,13 @@ def register() -> None:
 
             async def refresh() -> None:
                 nonlocal portfolio
-                portfolio = await load_portfolio(runtime.sessions)
+                everything = await load_portfolio(runtime.sessions)
+                games.set_games((p.appid for p in everything.positions), await game_names())
+                portfolio = (
+                    everything
+                    if games.appid is None
+                    else await load_portfolio(runtime.sessions, games.appid)
+                )
                 totals.clear()
                 with totals:
                     _stat(tr("Value"), fmt_usd(portfolio.value))
@@ -243,7 +251,7 @@ def register() -> None:
                     return
                 period = period_toggle.value
                 chart.options.clear()
-                chart.options.update(_value_chart(portfolio.value_history, period))
+                chart.options.update(themed_chart(_value_chart(portfolio.value_history, period)))
                 chart.update()
                 period_caption.text = (
                     tr("For all time")
@@ -318,7 +326,11 @@ def register() -> None:
                         dialog.close()
                         return await add_manual(result)
 
-                    search_box(action_label=tr("Add to portfolio"), on_pick=pick)
+                    search_box(
+                        action_label=tr("Add to portfolio"),
+                        on_pick=pick,
+                        games=await searchable_games(),
+                    )
                 dialog.open()
 
             async def toggle_pin(event: Any) -> None:
@@ -390,7 +402,7 @@ def _movers(container: ui.row, portfolio: Portfolio, period: str) -> None:
                     ui.label("—").classes("text-muted")
                 for p, change in entries[:3]:
                     with ui.row().classes("w-full no-wrap items-center gap-2"):
-                        color = rarity_color(p.rarity, p.quality)
+                        color = rarity_color(p.rarity, p.quality, p.name_color, p.appid)
                         ui.link(p.name, f"/item/{p.item_id}").classes(
                             "plain-link grow truncate"
                         ).style(f"color: {color}" if color else "")

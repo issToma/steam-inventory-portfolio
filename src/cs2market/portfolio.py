@@ -18,6 +18,7 @@ from cs2market.analysis import (
     to_frame,
 )
 from cs2market.core.fees import seller_proceeds
+from cs2market.core.games import CS2_APPID
 from cs2market.db import repo
 from cs2market.db.session import SessionMaker
 
@@ -78,6 +79,8 @@ class PositionInput:
     rarity: str | None = None
     quality: str | None = None
     pinned: bool = False
+    appid: int = CS2_APPID
+    name_color: str | None = None
 
 
 @dataclass(frozen=True)
@@ -102,6 +105,8 @@ class Position:
     quality: str | None = None
     trend: tuple[float, ...] = ()
     pinned: bool = False
+    appid: int = CS2_APPID
+    name_color: str | None = None
     # Price change per period key of PERIODS.
     changes: tuple[tuple[str, float | None], ...] = ()
 
@@ -169,6 +174,8 @@ def value_positions(inputs: Sequence[PositionInput]) -> Portfolio:
             quality=p.quality,
             trend=tuple(recent_trend(p.history)),
             pinned=p.pinned,
+            appid=p.appid,
+            name_color=p.name_color,
             changes=tuple((key, change_over(prices, span)) for key, span in PERIODS.items()),
         )
         for p, price, value, proceeds, cost, pnl, metrics, prices in rows
@@ -210,30 +217,35 @@ def value_history(
     return frame.ffill().dropna().sum(axis=1)
 
 
-_cache: tuple[tuple[object, ...], Portfolio] | None = None
+# Valued portfolios by game filter (None = every game), with the fingerprint they match.
+_cache: dict[int | None, tuple[tuple[object, ...], Portfolio]] = {}
 _cache_lock = asyncio.Lock()
 
 
-async def load_portfolio(sessions: SessionMaker) -> Portfolio:
-    """The valued portfolio, recomputed only when prices, rates or positions changed.
+async def load_portfolio(sessions: SessionMaker, appid: int | None = None) -> Portfolio:
+    """The valued portfolio, of one game or all, recomputed only when something changed.
 
-    The result is kept in this process's memory; a cheap fingerprint query tells whether
+    Results are kept in this process's memory; a cheap fingerprint query tells whether
     anything the valuation depends on has changed since.
     """
-    global _cache
     async with _cache_lock:
         async with sessions() as session:
             fingerprint = await repo.portfolio_fingerprint(session)
-        if _cache is not None and _cache[0] == fingerprint:
-            return _cache[1]
-        portfolio = await _compute_portfolio(sessions)
-        _cache = (fingerprint, portfolio)
+        cached = _cache.get(appid)
+        if cached is not None and cached[0] == fingerprint:
+            return cached[1]
+        portfolio = await _compute_portfolio(sessions, appid)
+        _cache[appid] = (fingerprint, portfolio)
         return portfolio
 
 
-async def _compute_portfolio(sessions: SessionMaker) -> Portfolio:
+async def _compute_portfolio(sessions: SessionMaker, appid: int | None = None) -> Portfolio:
     async with sessions() as session:
-        holdings = await repo.active_holdings(session)
+        holdings = [
+            (holding, item)
+            for holding, item in await repo.active_holdings(session)
+            if appid is None or item.appid == appid
+        ]
         fx = await repo.latest_fx(session)
         points = await repo.load_histories(session, list({item.id for _, item in holdings}))
     histories = {item_id: _frame_or_empty(rows, fx) for item_id, rows in points.items()}
@@ -252,6 +264,8 @@ async def _compute_portfolio(sessions: SessionMaker) -> Portfolio:
                 rarity=item.rarity,
                 quality=item.quality,
                 pinned=holding.pinned,
+                appid=item.appid,
+                name_color=item.name_color,
             )
             for holding, item in holdings
         ]

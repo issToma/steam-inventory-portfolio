@@ -76,6 +76,19 @@ def _color(value: object) -> str | None:
     return None
 
 
+def _rarity_color(description: dict[str, Any]) -> str | None:
+    """The colour of the item's rarity tag (CS2, Dota 2, ...), else Steam's name colour.
+
+    In CS2 the name colour marks StatTrak or Souvenir rather than rarity, so the tag wins.
+    """
+    for tag in description.get("tags") or []:
+        if isinstance(tag, dict) and tag.get("category") == "Rarity":
+            color = _color(tag.get("color"))
+            if color:
+                return color
+    return _color(description.get("name_color"))
+
+
 def _require(payload: Any, key: str, kind: type | tuple[type, ...], source: str) -> Any:
     if not isinstance(payload, dict) or not isinstance(payload.get(key), kind):
         raise SteamFormatError(f"{source}: missing or malformed field {key!r}")
@@ -339,7 +352,7 @@ def parse_inventory(payload: Any) -> InventoryPage:
                 marketable=bool(description.get("marketable")),
                 amount=int(_require(asset, "amount", str, source)),
                 appid=int(description.get("appid", CS2_APPID)),
-                name_color=_color(description.get("name_color")),
+                name_color=_rarity_color(description),
             )
         )
     more = payload.get("more_items") == 1
