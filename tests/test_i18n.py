@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from cs2market import i18n
-from cs2market.i18n import RU, RU_PLURAL, tr, tr_n
-from cs2market.ui.layout import NAV, NAV_BOTTOM, THEMES
+from invinv import i18n
+from invinv.i18n import RU, RU_PLURAL, tr, tr_n
+from invinv.ui.layout import NAV, NAV_BOTTOM, THEMES
 
 SOURCE = Path(i18n.__file__).parent
 

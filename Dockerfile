@@ -19,7 +19,7 @@ RUN useradd --create-home app
 USER app
 
 ENV PATH="/app/.venv/bin:$PATH" \
-    CS2M_HOST=0.0.0.0
+    INVINV_HOST=0.0.0.0
 EXPOSE 8080
 
-CMD ["sh", "-c", "alembic upgrade head && cs2market"]
+CMD ["sh", "-c", "alembic upgrade head && invinv"]

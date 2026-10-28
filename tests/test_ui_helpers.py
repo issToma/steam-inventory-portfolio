@@ -1,5 +1,5 @@
-from cs2market.ui.common import rarity_color, sparkline_points
-from cs2market.ui.layout import themed_chart
+from invinv.ui.common import rarity_color, sparkline_points
+from invinv.ui.layout import themed_chart
 
 
 def test_themed_chart_colours_axes_legend_and_tooltip() -> None:
@@ -20,8 +20,8 @@ def test_themed_chart_colours_axes_legend_and_tooltip() -> None:
 
 
 def test_rarity_colour_per_game() -> None:
-    assert rarity_color("Covert", None) == "#eb4b4b"
-    assert rarity_color("Covert", "★") == "#8650ac"
+    assert rarity_color("Covert", None, None, 730) == "#eb4b4b"
+    assert rarity_color("Covert", "★", None, 730) == "#8650ac"
     assert rarity_color(None, None, "#4b69ff", appid=570) == "#4b69ff"
     assert rarity_color("Covert", None, None, appid=570) is None
 

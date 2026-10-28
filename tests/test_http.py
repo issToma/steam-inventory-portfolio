@@ -6,7 +6,7 @@ from typing import Any, Self, cast
 import aiohttp
 import pytest
 
-from cs2market.core.http import (
+from invinv.core.http import (
     SteamBusyError,
     SteamClient,
     SteamError,

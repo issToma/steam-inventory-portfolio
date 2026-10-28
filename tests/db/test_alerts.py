@@ -4,26 +4,26 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cs2market import alerts
-from cs2market.core.parsers import HistoryPoint, PriceHistory, SearchResult
-from cs2market.core.telegram import TelegramError
-from cs2market.db import repo
-from cs2market.db.session import SessionMaker
-from cs2market.db.tables import AlertEvent, FetchJob
+from invinv import alerts
+from invinv.core.parsers import HistoryPoint, PriceHistory, SearchResult
+from invinv.core.telegram import TelegramError
+from invinv.db import repo
+from invinv.db.session import SessionMaker
+from invinv.db.tables import AlertEvent, FetchJob
 
 NOW = datetime(2026, 10, 28, 12, tzinfo=UTC)
 NAME = "Kilowatt Case"
-FOUND = SearchResult(NAME, "Base Grade Container", "G1", None, None, None, None)
+FOUND = SearchResult(NAME, "Base Grade Container", "G1", None, None, None, None, appid=730)
 
 
 async def add_rule(session: AsyncSession, kind: str = "above", threshold: str = "2") -> int:
-    rule = await repo.add_alert(session, NAME, kind, Decimal(threshold), found=FOUND)
+    rule = await repo.add_alert(session, NAME, kind, Decimal(threshold), found=FOUND, appid=730)
     await session.commit()
     return rule.id
 
 
 async def set_price(session: AsyncSession, price: str, at: datetime = NOW) -> int:
-    item = await repo.get_item_by_name(session, NAME)
+    item = await repo.get_item_by_name(session, NAME, 730)
     assert item is not None
     history = PriceHistory(1, [HistoryPoint(at, "hour", Decimal(price), 10)])
     await repo.save_history(session, item.id, history)
@@ -35,7 +35,7 @@ async def jobs(session: AsyncSession) -> set[tuple[str, str]]:
 
 
 async def tracked(session: AsyncSession) -> bool:
-    item = await repo.get_item_by_name(session, NAME)
+    item = await repo.get_item_by_name(session, NAME, 730)
     return item is not None and await repo.is_tracked(session, item.id)
 
 

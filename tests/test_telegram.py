@@ -6,7 +6,7 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
 
-from cs2market.core.telegram import TelegramBot, TelegramError
+from invinv.core.telegram import TelegramBot, TelegramError
 
 TOKEN = "123:secret"
 

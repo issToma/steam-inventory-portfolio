@@ -2,8 +2,8 @@ from decimal import Decimal
 
 import pytest
 
-from cs2market.core.currency import parse_price_text
-from cs2market.core.fees import buyer_price, seller_proceeds
+from invinv.core.currency import parse_price_text
+from invinv.core.fees import buyer_price, seller_proceeds
 
 
 @pytest.mark.parametrize(

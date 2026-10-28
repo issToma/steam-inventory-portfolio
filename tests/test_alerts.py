@@ -3,9 +3,9 @@ from decimal import Decimal
 
 import pytest
 
-from cs2market import alerts
-from cs2market.alerts import Reading, is_met, step
-from cs2market.db.tables import AlertEvent, AlertRule, Item
+from invinv import alerts
+from invinv.alerts import Reading, is_met, step
+from invinv.db.tables import AlertEvent, AlertRule, Item
 
 NOW = datetime(2026, 10, 28, 12, tzinfo=UTC)
 READING = Reading(price=15.0, change_24h=0.12, change_7d=-0.2)

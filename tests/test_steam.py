@@ -3,8 +3,8 @@ from typing import Any, cast
 
 import pytest
 
-from cs2market.core.http import Params, SteamClient, SteamHttpError
-from cs2market.core.steam import (
+from invinv.core.http import Params, SteamClient, SteamHttpError
+from invinv.core.steam import (
     EXTERIOR_TAGS,
     QUALITY_TAGS,
     TYPE_TAGS,
@@ -39,7 +39,7 @@ async def test_search_filters_by_quality(
     client = FakeClient(load_fixture("search_render.json"))
     market = SteamMarket(cast(SteamClient, client))
 
-    results = await market.search("breakout", quality=quality, priority=True)
+    results = await market.search("breakout", quality=quality, priority=True, appid=730)
 
     assert len(results) == 1
     path, params, kwargs = client.calls[0]
@@ -54,7 +54,7 @@ async def test_search_by_kind_and_exterior(load_fixture: Callable[[str], Any]) -
     client = FakeClient(load_fixture("search_render.json"))
     market = SteamMarket(cast(SteamClient, client))
 
-    await market.search("", kind="knife", quality="stattrak", exterior="fn")
+    await market.search("", kind="knife", quality="stattrak", exterior="fn", appid=730)
 
     _, params, _ = client.calls[0]
     assert isinstance(params, list)
@@ -92,7 +92,7 @@ async def test_inventory_follows_pages(load_fixture: Callable[[str], Any]) -> No
     client = PagedClient([first, load_fixture("inventory.json")])
     market = SteamMarket(cast(SteamClient, client))
 
-    items = await market.inventory("76561198000000000")
+    items = await market.inventory("76561198000000000", 730)
 
     assert len(items) == 6
     assert client.params[1] is not None
@@ -104,4 +104,4 @@ async def test_private_inventory() -> None:
     market = SteamMarket(cast(SteamClient, client))
 
     with pytest.raises(InventoryPrivateError):
-        await market.inventory("76561198000000000")
+        await market.inventory("76561198000000000", 730)

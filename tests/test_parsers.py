@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from cs2market.core.parsers import (
+from invinv.core.parsers import (
     ProfileRef,
     SteamFormatError,
     market_hash_name_from_input,

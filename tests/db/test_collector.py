@@ -2,9 +2,9 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, cast
 
-from cs2market.collector import Collector
-from cs2market.core.http import RATE_LIMITED_MESSAGE
-from cs2market.core.parsers import (
+from invinv.collector import Collector
+from invinv.core.http import RATE_LIMITED_MESSAGE
+from invinv.core.parsers import (
     GroupVariant,
     HistoryPoint,
     InventoryApp,
@@ -14,10 +14,10 @@ from cs2market.core.parsers import (
     SearchResult,
     SteamProfile,
 )
-from cs2market.core.steam import InventoryPrivateError, SteamMarket
-from cs2market.db import repo
-from cs2market.db.session import SessionMaker
-from cs2market.settings import Settings
+from invinv.core.steam import InventoryPrivateError, SteamMarket
+from invinv.db import repo
+from invinv.db.session import SessionMaker
+from invinv.settings import Settings
 
 STEAM_ID = "76561198000000000"
 NOW = datetime(2026, 10, 28, 12, tzinfo=UTC)
@@ -62,8 +62,12 @@ async def run_inventory_job(sessions: SessionMaker, market: FakeMarket) -> None:
 
 
 async def test_inventory_job_imports_sellable_items(sessions: SessionMaker) -> None:
-    case = InventoryItem("Kilowatt Case", "Base Grade Container", "G1", "1", None, True, 1)
-    coin = InventoryItem("Veteran Coin", "Extraordinary Collectible", None, "2", None, False, 1)
+    case = InventoryItem(
+        "Kilowatt Case", "Base Grade Container", "G1", "1", None, True, 1, appid=730
+    )
+    coin = InventoryItem(
+        "Veteran Coin", "Extraordinary Collectible", None, "2", None, False, 1, appid=730
+    )
     market = FakeMarket([case, case, coin])
 
     await run_inventory_job(sessions, market)
@@ -132,8 +136,8 @@ class HistoryMarket:
 async def run_group_job(sessions: SessionMaker, market: HistoryMarket, names: list[str]) -> None:
     async with sessions() as session:
         for name in names:
-            found = SearchResult(name, "Classified Rifle", "G1", None, None, None, None)
-            await repo.add_manual_holding(session, name, quantity=1, found=found)
+            found = SearchResult(name, "Classified Rifle", "G1", None, None, None, None, appid=730)
+            await repo.add_manual_holding(session, name, quantity=1, found=found, appid=730)
         await session.commit()
         job = await repo.get_job(session, repo.JOB_GROUP, "730:G1")
     assert job is not None
@@ -184,7 +188,9 @@ async def test_fresh_public_profile_is_not_fetched_again(sessions: SessionMaker)
         await session.commit()
         job = await repo.get_job(session, repo.JOB_INVENTORY, STEAM_ID)
     assert job is not None
-    case = InventoryItem("Kilowatt Case", "Base Grade Container", "G1", "1", None, True, 1)
+    case = InventoryItem(
+        "Kilowatt Case", "Base Grade Container", "G1", "1", None, True, 1, appid=730
+    )
     market = FakeMarket([case])
 
     await collector(sessions, market)._run(job)
@@ -205,7 +211,9 @@ class TwoGamesMarket(FakeMarket):
         self.calls.append(f"{appid}/{contextid}")
         if appid == 730:
             return [
-                InventoryItem("Kilowatt Case", "Base Grade Container", "G1", "1", None, True, 1)
+                InventoryItem(
+                    "Kilowatt Case", "Base Grade Container", "G1", "1", None, True, 1, appid=730
+                )
             ]
         return [InventoryItem("Tempered Hoodie", "Hoodie", None, "9", None, True, 1, appid=252490)]
 

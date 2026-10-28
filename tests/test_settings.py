@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from cs2market.settings import MIN_REQUEST_INTERVAL_SECONDS, Settings
+from invinv.settings import MIN_REQUEST_INTERVAL_SECONDS, Settings
 
 
 def test_request_interval_cannot_go_below_floor() -> None:

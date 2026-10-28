@@ -1,13 +1,13 @@
 from decimal import Decimal
 
-from cs2market.db import repo
-from cs2market.db.session import SessionMaker
-from cs2market.portfolio import load_portfolio
+from invinv.db import repo
+from invinv.db.session import SessionMaker
+from invinv.portfolio import load_portfolio
 
 
 async def test_cache_is_reused_until_positions_change(sessions: SessionMaker) -> None:
     async with sessions() as session:
-        holding = await repo.add_manual_holding(session, "Kilowatt Case", quantity=2)
+        holding = await repo.add_manual_holding(session, "Kilowatt Case", quantity=2, appid=730)
         await session.commit()
 
     first = await load_portfolio(sessions)

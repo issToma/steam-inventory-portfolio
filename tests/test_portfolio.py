@@ -4,9 +4,9 @@ from decimal import Decimal
 import pandas as pd
 import pytest
 
-from cs2market.analysis import to_frame
-from cs2market.db.repo import StoredPoint
-from cs2market.portfolio import PositionInput, period_stats, value_positions
+from invinv.analysis import to_frame
+from invinv.db.repo import StoredPoint
+from invinv.portfolio import PositionInput, period_stats, value_positions
 
 DAY = datetime(2026, 10, 1, tzinfo=UTC)
 
@@ -27,6 +27,7 @@ def position(
         name=f"item {holding_id}",
         source="manual",
         location=None,
+        appid=730,
         quantity=quantity,
         buy_price_usd=Decimal(buy) if buy else None,
         history=to_frame(history(*prices), {}),
@@ -95,6 +96,7 @@ def test_value_history_starts_when_every_item_is_on_the_market() -> None:
         name="item 2",
         source="manual",
         location=None,
+        appid=730,
         quantity=1,
         buy_price_usd=None,
         history=to_frame(

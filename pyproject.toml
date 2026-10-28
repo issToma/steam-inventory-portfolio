@@ -1,7 +1,7 @@
 [project]
-name = "cs2market"
+name = "invinv"
 version = "0.1.0"
-description = "Self-hosted price tracker and analytics for the CS2 items on the Steam Community Market"
+description = "InvInv (Investment Inventory): self-hosted tracker of what your Steam items are worth on the Steam Community Market"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
-cs2market = "cs2market.main:run"
+invinv = "invinv.main:run"
 
 [build-system]
 requires = ["uv_build>=0.9,<0.10"]
@@ -37,7 +37,7 @@ allowed-confusables = ["р", "у", "б"]
 
 [tool.ruff.lint.per-file-ignores]
 # Russian translations: Cyrillic letters and long sentences are expected.
-"src/cs2market/i18n.py" = ["RUF001", "E501"]
+"src/invinv/i18n.py" = ["RUF001", "E501"]
 
 [tool.mypy]
 python_version = "3.14"

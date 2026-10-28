@@ -1,20 +1,21 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cs2market.db import repo
+from invinv.db import repo
 
 REDLINE_FT = repo.CatalogRecord(
     "AK-47 | Redline (Field-Tested)",
     "Classified Rifle",
     sell_price_usd_cents=3160,
     sell_listings=1275,
+    appid=730,
 )
 REDLINE_ST_MW = repo.CatalogRecord(
-    "StatTrak™ AK-47 | Redline (Minimal Wear)", "StatTrak™ Classified Rifle"
+    "StatTrak™ AK-47 | Redline (Minimal Wear)", "StatTrak™ Classified Rifle", appid=730
 )
 AWP_REDLINE = repo.CatalogRecord(
-    "AWP | Redline (Field-Tested)", "Classified Sniper Rifle", sell_listings=285
+    "AWP | Redline (Field-Tested)", "Classified Sniper Rifle", sell_listings=285, appid=730
 )
-CASE = repo.CatalogRecord("Operation Breakout Weapon Case", "Base Grade Container")
+CASE = repo.CatalogRecord("Operation Breakout Weapon Case", "Base Grade Container", appid=730)
 
 
 async def names(
@@ -62,7 +63,8 @@ async def test_filters(session: AsyncSession) -> None:
 async def test_upsert_keeps_known_price(session: AsyncSession) -> None:
     await repo.upsert_catalog(session, [REDLINE_FT])
     await repo.upsert_catalog(
-        session, [repo.CatalogRecord(REDLINE_FT.market_hash_name, "Classified Rifle", "G1")]
+        session,
+        [repo.CatalogRecord(REDLINE_FT.market_hash_name, "Classified Rifle", "G1", appid=730)],
     )
 
     (entry,) = await repo.search_catalog(session, "redline")
@@ -81,10 +83,11 @@ async def test_fill_from_catalog_completes_missing_details(session: AsyncSession
                 "StatTrak™ Classified Rifle",
                 bucket_group_id="G1",
                 icon_url="abc",
+                appid=730,
             )
         ],
     )
-    item = await repo.get_or_create_item(session, "Unknown Sticker")
+    item = await repo.get_or_create_item(session, "Unknown Sticker", 730)
     item.market_hash_name = "StatTrak™ AK-47 | Redline (Minimal Wear)"
 
     await repo.fill_from_catalog(session, item)

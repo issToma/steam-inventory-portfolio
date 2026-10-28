@@ -3,9 +3,9 @@ from decimal import Decimal
 
 import pytest
 
-from cs2market import scheduling
-from cs2market.core.parsers import HistoryPoint, PriceHistory
-from cs2market.scheduling import (
+from invinv import scheduling
+from invinv.core.parsers import HistoryPoint, PriceHistory
+from invinv.scheduling import (
     DAY,
     SIX_HOURS,
     Importance,

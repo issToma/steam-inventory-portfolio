@@ -4,13 +4,15 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cs2market.core.parsers import HistoryPoint, InventoryItem, PriceHistory
-from cs2market.db import repo
-from cs2market.db.tables import FetchJob, Holding
+from invinv.core.parsers import HistoryPoint, InventoryItem, PriceHistory
+from invinv.db import repo
+from invinv.db.tables import FetchJob, Holding
 
 
 def inv(name: str, *, amount: int = 1, marketable: bool = True, group: str = "G1") -> InventoryItem:
-    return InventoryItem(name, "Base Grade Container", group, "1", None, marketable, amount)
+    return InventoryItem(
+        name, "Base Grade Container", group, "1", None, marketable, amount, appid=730
+    )
 
 
 async def active(session: AsyncSession) -> dict[str, tuple[str, int]]:
@@ -50,7 +52,9 @@ async def test_item_leaving_and_returning_keeps_purchase_price(session: AsyncSes
 
 
 async def test_sync_leaves_manual_positions_alone(session: AsyncSession) -> None:
-    await repo.add_manual_holding(session, "Kilowatt Case", quantity=50, location="Storage #1")
+    await repo.add_manual_holding(
+        session, "Kilowatt Case", quantity=50, location="Storage #1", appid=730
+    )
     await repo.sync_inventory(session, [inv("Kilowatt Case")])
 
     holdings = list(await session.scalars(select(Holding).order_by(Holding.source)))
@@ -70,7 +74,7 @@ async def test_inventory_quantity_is_not_editable(session: AsyncSession) -> None
 
 
 async def test_deleting_last_position_stops_collection(session: AsyncSession) -> None:
-    holding = await repo.add_manual_holding(session, "Some Sticker", quantity=1)
+    holding = await repo.add_manual_holding(session, "Some Sticker", quantity=1, appid=730)
     assert ("history", "730:Some Sticker") in await jobs(session)
 
     await repo.delete_manual_holding(session, holding.id)
@@ -80,8 +84,8 @@ async def test_deleting_last_position_stops_collection(session: AsyncSession) ->
 
 
 async def test_watchlist_removal_keeps_collecting_held_items(session: AsyncSession) -> None:
-    item = await repo.add_to_watchlist(session, "Some Sticker")
-    await repo.add_manual_holding(session, "Some Sticker", quantity=1)
+    item = await repo.add_to_watchlist(session, "Some Sticker", appid=730)
+    await repo.add_manual_holding(session, "Some Sticker", quantity=1, appid=730)
 
     await repo.remove_from_watchlist(session, item.id)
 
@@ -156,7 +160,9 @@ async def test_game_that_failed_to_load_keeps_its_positions(session: AsyncSessio
 
 
 async def test_game_fee_from_the_inventory_is_stored(session: AsyncSession) -> None:
-    own_fee = InventoryItem("Hoodie", "Hoodie", None, "9", None, True, 1, publisher_fee=0.05)
+    own_fee = InventoryItem(
+        "Hoodie", "Hoodie", None, "9", None, True, 1, publisher_fee=0.05, appid=730
+    )
     await repo.sync_inventory(session, [own_fee, inv("Kilowatt Case")])
 
     holdings = await repo.active_holdings(session)
@@ -173,7 +179,9 @@ async def test_switching_accounts_hides_and_restores_positions(session: AsyncSes
     await repo.set_inventory_owner(session, MAIN)
     await repo.sync_inventory(session, [inv("Kilowatt Case"), inv("Revolution Case")])
     await repo.pin_all(session, True)
-    await repo.add_manual_holding(session, "Recoil Case", quantity=3, location="Storage #1")
+    await repo.add_manual_holding(
+        session, "Recoil Case", quantity=3, location="Storage #1", appid=730
+    )
 
     await repo.set_inventory_owner(session, TWIN)
     assert await active(session) == {}
@@ -191,8 +199,8 @@ async def test_switching_accounts_hides_and_restores_positions(session: AsyncSes
 
 async def test_hidden_positions_stop_their_collection(session: AsyncSession) -> None:
     await repo.set_inventory_owner(session, MAIN)
-    await repo.add_manual_holding(session, "Recoil Case", quantity=1)
-    item = await repo.get_item_by_name(session, "Recoil Case")
+    await repo.add_manual_holding(session, "Recoil Case", quantity=1, appid=730)
+    item = await repo.get_item_by_name(session, "Recoil Case", 730)
     assert item is not None
 
     await repo.set_inventory_owner(session, TWIN)
@@ -207,7 +215,7 @@ async def test_hidden_positions_stop_their_collection(session: AsyncSession) -> 
 async def test_positions_made_without_an_account_go_to_the_first_one(
     session: AsyncSession,
 ) -> None:
-    await repo.add_manual_holding(session, "Recoil Case", quantity=1)
+    await repo.add_manual_holding(session, "Recoil Case", quantity=1, appid=730)
 
     await repo.set_inventory_owner(session, MAIN)
     assert await active(session) == {"Recoil Case": ("manual", 1)}
@@ -243,7 +251,7 @@ async def test_valuable_and_watched_items_are_fetched_first(session: AsyncSessio
 
 async def test_price_progress(session: AsyncSession) -> None:
     await repo.sync_inventory(session, [inv("Kilowatt Case"), inv("Revolution Case")])
-    item = await repo.get_item_by_name(session, "Kilowatt Case")
+    item = await repo.get_item_by_name(session, "Kilowatt Case", 730)
     assert item is not None
     history = PriceHistory(1, [HistoryPoint(datetime.now(UTC), "hour", Decimal("1"), 1)])
     await repo.save_history(session, item.id, history)

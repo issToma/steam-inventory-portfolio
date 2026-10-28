@@ -3,15 +3,15 @@ from decimal import Decimal
 
 import pytest
 
-from cs2market.analysis import (
+from invinv.analysis import (
     MissingRateError,
     compute_metrics,
     daily_series,
     recent_trend,
     to_frame,
 )
-from cs2market.core.parsers import Resolution
-from cs2market.db.repo import StoredPoint
+from invinv.core.parsers import Resolution
+from invinv.db.repo import StoredPoint
 
 START = datetime(2026, 9, 1, tzinfo=UTC)
 

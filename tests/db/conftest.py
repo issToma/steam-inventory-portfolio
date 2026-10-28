@@ -1,6 +1,6 @@
 """Tests against a real Postgres: a separate database, migrated with Alembic once per run.
 
-Set CS2M_TEST_DATABASE_URL to choose it; by default it is the app's database name with a
+Set INVINV_TEST_DATABASE_URL to choose it; by default it is the app's database name with a
 "_test" suffix. The tests are skipped when Postgres is not reachable.
 """
 
@@ -13,13 +13,13 @@ from alembic.config import Config
 from sqlalchemy import make_url, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from cs2market.db.session import SessionMaker, make_sessionmaker
-from cs2market.db.tables import Base
-from cs2market.settings import get_settings
+from invinv.db.session import SessionMaker, make_sessionmaker
+from invinv.db.tables import Base
+from invinv.settings import get_settings
 
 
 def _test_url() -> str:
-    if url := os.environ.get("CS2M_TEST_DATABASE_URL"):
+    if url := os.environ.get("INVINV_TEST_DATABASE_URL"):
         return url
     app_url = make_url(get_settings().database_url)
     return app_url.set(database=f"{app_url.database}_test").render_as_string(hide_password=False)
@@ -50,17 +50,17 @@ def database_url() -> Iterator[str]:
     except OSError as exc:
         pytest.skip(f"Postgres is not reachable: {exc}")
     config = Config("alembic.ini")
-    previous = os.environ.get("CS2M_DATABASE_URL")
-    os.environ["CS2M_DATABASE_URL"] = url
+    previous = os.environ.get("INVINV_DATABASE_URL")
+    os.environ["INVINV_DATABASE_URL"] = url
     get_settings.cache_clear()
     try:
         command.upgrade(config, "head")
         yield url
     finally:
         if previous is None:
-            os.environ.pop("CS2M_DATABASE_URL", None)
+            os.environ.pop("INVINV_DATABASE_URL", None)
         else:
-            os.environ["CS2M_DATABASE_URL"] = previous
+            os.environ["INVINV_DATABASE_URL"] = previous
         get_settings.cache_clear()
 
 
