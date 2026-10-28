@@ -90,7 +90,8 @@ def sparkline_points(values: list[float], width: int = 90, height: int = 24) -> 
 
 
 NAME_CELL_SLOT = (
-    '<q-td :props="props">'
+    # Long names wrap instead of running into the next column.
+    '<q-td :props="props" style="white-space: normal; min-width: 220px; max-width: 360px">'
     '<div class="row items-center no-wrap" style="gap: 10px">'
     '<img v-if="props.row.icon" :src="props.row.icon" '
     'style="width: 48px; height: 36px; object-fit: contain" />'

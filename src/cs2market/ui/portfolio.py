@@ -32,7 +32,12 @@ def range_options() -> dict[str, str]:
     return {key: tr(key) if key == "All" else key for key in RANGES}
 
 
-def columns() -> list[dict[str, Any]]:
+def columns(*, with_pnl: bool) -> list[dict[str, Any]]:
+    """P&L only appears once some position has a purchase price."""
+    return [column for column in _all_columns() if with_pnl or column["name"] != "pnl"]
+
+
+def _all_columns() -> list[dict[str, Any]]:
     return [
         {"name": "name", "label": tr("Item"), "field": "name", "align": "left", "sortable": True},
         {
@@ -126,7 +131,9 @@ def register() -> None:
 
             # --- Positions ---------------------------------------------------------------
             ui.label(tr("Positions")).classes("text-h6")
-            table = ui.table(columns=columns(), rows=[], row_key="id").classes("w-full")
+            table = ui.table(columns=columns(with_pnl=False), rows=[], row_key="id").classes(
+                "w-full"
+            )
             table.add_slot("body-cell-name", NAME_CELL_SLOT)
             table.add_slot("body-cell-trend", SPARK_CELL_SLOT)
             table.add_slot(
@@ -162,6 +169,9 @@ def register() -> None:
                             "",
                             tr("fetched shortly"),
                         )
+                table.columns = columns(
+                    with_pnl=any(p.pnl is not None for p in portfolio.positions)
+                )
                 table.rows = [_row(p) for p in portfolio.positions]
                 table.update()
                 redraw()
