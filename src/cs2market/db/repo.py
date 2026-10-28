@@ -576,3 +576,13 @@ async def set_inventory_owner(session: AsyncSession, steam_id64: str | None) -> 
         await run_job_now(session, JOB_INVENTORY, steam_id64)
     else:
         await sync_inventory(session, [])
+
+
+async def held_quantities(session: AsyncSession, item_ids: list[int]) -> dict[int, int]:
+    """Total quantity per item over all active positions."""
+    result = await session.execute(
+        select(Holding.item_id, func.sum(Holding.quantity))
+        .where(Holding.item_id.in_(item_ids), Holding.removed_at.is_(None))
+        .group_by(Holding.item_id)
+    )
+    return {item_id: int(quantity) for item_id, quantity in result}

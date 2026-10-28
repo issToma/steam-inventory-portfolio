@@ -6,9 +6,10 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
+from cs2market import scheduling
 from cs2market.core.currency import USD
 from cs2market.core.http import SteamError, SteamRateLimitedError
-from cs2market.core.parsers import SteamFormatError, parse_item_traits
+from cs2market.core.parsers import PriceHistory, SteamFormatError, parse_item_traits
 from cs2market.core.steam import InventoryPrivateError, SteamMarket
 from cs2market.db import repo
 from cs2market.db.session import SessionMaker
@@ -147,7 +148,7 @@ class Collector:
                 await repo.ensure_job(session, repo.JOB_FX, str(history.currency))
             await session.commit()
         log.info("stored %d points for %r", len(history.points), job.target)
-        return self._now() + timedelta(minutes=self._settings.history_refresh_minutes)
+        return await self._next_refresh([(item.id, history)])
 
     async def _group(self, job: FetchJob) -> datetime | None:
         async with self._sessions() as session:
@@ -172,6 +173,7 @@ class Collector:
             )
             await session.commit()
         currencies = set()
+        fetched: list[tuple[int, PriceHistory]] = []
         for item in items:
             variant = variants.get(item.market_hash_name)
             history = variant.history if variant else None
@@ -186,12 +188,37 @@ class Collector:
                         stored.collection = variant.collection
                 await session.commit()
             currencies.add(history.currency)
+            fetched.append((item.id, history))
         async with self._sessions() as session:
             for currency in currencies - {USD}:
                 await repo.ensure_job(session, repo.JOB_FX, str(currency))
             await session.commit()
-        log.info("stored history for %d item(s) from group %s", len(items), job.target)
-        return self._now() + timedelta(minutes=self._settings.history_refresh_minutes)
+        next_run = await self._next_refresh(fetched)
+        log.info(
+            "stored history for %d item(s) from group %s; next refresh %s",
+            len(items),
+            job.target,
+            f"{next_run:%Y-%m-%d %H:%M} UTC",
+        )
+        return next_run
+
+    async def _next_refresh(self, fetched: list[tuple[int, PriceHistory]]) -> datetime:
+        """Refresh valuable, liquid or watched items hourly and the rest less often."""
+        async with self._sessions() as session:
+            ids = [item_id for item_id, _ in fetched]
+            quantities = await repo.held_quantities(session, ids)
+            watched = any([await repo.in_watchlist(session, item_id) for item_id in ids])
+            fx = await repo.latest_fx(session)
+        now = self._now()
+        importance = scheduling.Importance(
+            watched=watched,
+            held_value_usd=scheduling.held_value_usd(
+                [(quantities[i], h) for i, h in fetched if i in quantities], fx
+            ),
+            sales_per_day=max((scheduling.sales_per_day(h, now) for _, h in fetched), default=0.0),
+        )
+        base = timedelta(minutes=self._settings.history_refresh_minutes)
+        return now + scheduling.refresh_interval(importance, base)
 
     async def _inventory(self, job: FetchJob) -> datetime | None:
         async with self._sessions() as session:
