@@ -80,7 +80,7 @@ def search_box(
         quality_toggle = ui.toggle(QUALITY_OPTIONS, value=ANY).props("dense no-caps")
         exterior_toggle = ui.toggle(EXTERIOR_OPTIONS, value=ANY).props("dense no-caps")
         exterior_toggle.set_visibility(False)
-    status = ui.label().classes("text-caption text-grey-7")
+    status = ui.label().classes("text-caption text-muted")
     results_box = ui.column().classes("w-full gap-1")
 
     async def show_results(results: list[SearchResult]) -> None:
@@ -96,12 +96,12 @@ def search_box(
                         ui.image(ICON_URL.format(result.icon_url)).classes("w-12 h-9")
                     with ui.column().classes("grow gap-0"):
                         ui.label(result.market_hash_name)
-                        ui.label(result.item_type).classes("text-caption text-grey-7")
+                        ui.label(result.item_type).classes("text-caption text-muted")
                     if result.sell_price_usd_cents is not None:
                         ui.label(
                             f"{fmt_usd(result.sell_price_usd_cents / 100)} · "
                             f"{result.sell_listings or 0:,} listed"
-                        ).classes("text-grey-8")
+                        ).classes("text-muted")
                     button = ui.button(action_label).props("flat dense")
                     if result.market_hash_name in done:
                         button.text = already_label

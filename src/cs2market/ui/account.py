@@ -36,7 +36,7 @@ class AccountCard:
         ui.label(
             "Paste a link to your Steam profile. Your items are imported automatically and "
             "kept up to date; nothing else is needed from your account."
-        ).classes("text-grey-7")
+        ).classes("text-muted")
         with ui.row().classes("w-full items-center"):
             link = ui.input(
                 "Profile link or SteamID64",
@@ -97,7 +97,7 @@ class AccountCard:
             with ui.column().classes("grow gap-0"):
                 if profile:
                     ui.link(profile.name, profile.profile_url, new_tab=True).classes(
-                        "text-subtitle1 text-black no-underline"
+                        "text-subtitle1 plain-link"
                     )
                 else:
                     ui.label("Steam account").classes("text-subtitle1")
@@ -112,7 +112,7 @@ class AccountCard:
     @staticmethod
     def _status_lines(account: repo.Account, private: bool) -> None:
         job = account.job
-        caption = "text-caption text-grey-7"
+        caption = "text-caption text-muted"
         if private:
             ui.label("⚠ Your inventory is hidden by Steam's privacy settings.").classes(
                 "text-warning"
@@ -133,7 +133,7 @@ class AccountCard:
     @staticmethod
     def _privacy_help(*, expanded: bool) -> None:
         with ui.expansion("How to make your inventory visible", value=expanded).classes(
-            "w-full text-grey-8"
+            "w-full text-muted"
         ):
             ui.markdown(
                 f"1. Open your [Steam privacy settings]({PRIVACY_SETTINGS_URL}) "

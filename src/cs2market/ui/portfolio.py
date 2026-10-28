@@ -11,7 +11,8 @@ from cs2market.db import repo
 from cs2market.portfolio import Portfolio, Position, load_portfolio
 from cs2market.runtime import runtime
 from cs2market.ui.account import AccountCard
-from cs2market.ui.common import fmt_pct, fmt_usd, header, pct_color
+from cs2market.ui.common import fmt_pct, fmt_usd, pct_color
+from cs2market.ui.layout import echart_theme, page_frame
 from cs2market.ui.search_box import search_box
 
 RANGES = {"30D": timedelta(days=30), "1Y": timedelta(days=365), "All": None}
@@ -66,6 +67,7 @@ def _value_chart(history: pd.Series, range_key: str) -> dict[str, Any]:
     ]
     return {
         "animation": False,
+        "backgroundColor": "transparent",
         "tooltip": {"trigger": "axis", ":valueFormatter": "v => '$' + v.toFixed(2)"},
         "grid": {"left": 80, "right": 20, "top": 20, "bottom": 30},
         "xAxis": {"type": "time"},
@@ -97,9 +99,7 @@ async def _position_dialog(
     with ui.dialog() as dialog, ui.card().classes("min-w-80"):
         ui.label(title).classes("text-subtitle1")
         if not manual:
-            ui.label("Quantity comes from your Steam inventory.").classes(
-                "text-caption text-grey-7"
-            )
+            ui.label("Quantity comes from your Steam inventory.").classes("text-caption text-muted")
         quantity = ui.number("Quantity", value=initial.quantity, min=1, step=1, format="%d")
         location = ui.input(
             "Where it is kept", value=initial.location or "", placeholder="Storage unit #1"
@@ -147,8 +147,7 @@ async def _position_dialog(
 def register() -> None:
     @ui.page("/")
     async def portfolio_page() -> None:
-        header()
-        with ui.column().classes("w-full max-w-6xl mx-auto p-4 gap-4"):
+        with page_frame("portfolio"):
             ui.label("Portfolio").classes("text-h5")
 
             account = AccountCard(on_change=lambda: refresh())
@@ -157,7 +156,7 @@ def register() -> None:
             totals = ui.row().classes("gap-3")
             with ui.row().classes("items-center"):
                 range_toggle = ui.toggle(list(RANGES), value="1Y")
-            chart = ui.echart({}).classes("w-full h-72")
+            chart = ui.echart({}, theme=echart_theme()).classes("w-full h-72")
 
             # --- Positions ---------------------------------------------------------------
             ui.label("Positions").classes("text-h6")
@@ -174,7 +173,7 @@ def register() -> None:
             ui.label("Add items that are not in your inventory").classes("text-h6")
             ui.label(
                 "For example, storage unit contents: Steam does not show them in the inventory."
-            ).classes("text-grey-7")
+            ).classes("text-muted")
 
             portfolio: Portfolio | None = None
 
@@ -271,7 +270,7 @@ def register() -> None:
 
 def _stat(label: str, value: str, color: str = "", hint: str = "") -> None:
     with ui.card().classes("min-w-40"):
-        ui.label(label).classes("text-caption text-grey-7")
+        ui.label(label).classes("text-caption text-muted")
         ui.label(value).classes(f"text-h6 {color}")
         if hint:
-            ui.label(hint).classes("text-caption text-grey-6")
+            ui.label(hint).classes("text-caption text-muted")

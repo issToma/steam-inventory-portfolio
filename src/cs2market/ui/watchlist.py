@@ -7,7 +7,8 @@ from cs2market.analysis import MissingRateError, compute_metrics, to_frame
 from cs2market.core.parsers import SearchResult
 from cs2market.db import repo
 from cs2market.runtime import runtime
-from cs2market.ui.common import fmt_pct, fmt_usd, header
+from cs2market.ui.common import fmt_pct, fmt_usd
+from cs2market.ui.layout import page_frame
 from cs2market.ui.search_box import search_box
 
 # Enough history for the 30-day metrics on the overview.
@@ -65,10 +66,9 @@ async def _rows() -> list[dict[str, Any]]:
 def register() -> None:
     @ui.page("/watchlist")
     async def watchlist_page() -> None:
-        header()
-        with ui.column().classes("w-full max-w-5xl mx-auto p-4 gap-4"):
+        with page_frame("watchlist"):
             ui.label("Watchlist").classes("text-h5")
-            ui.label("Items you follow without owning them.").classes("text-grey-7")
+            ui.label("Items you follow without owning them.").classes("text-muted")
 
             async def watched() -> set[str]:
                 async with runtime.sessions() as session:

@@ -17,7 +17,8 @@ from cs2market.core.currency import USD, currency_name
 from cs2market.core.fees import seller_proceeds
 from cs2market.db import repo
 from cs2market.runtime import runtime
-from cs2market.ui.common import fmt_pct, fmt_usd, header, pct_color
+from cs2market.ui.common import fmt_pct, fmt_usd, pct_color
+from cs2market.ui.layout import echart_theme, page_frame
 
 RANGES = {
     "7D": timedelta(days=7),
@@ -95,6 +96,7 @@ def _chart_options(
     }
     return {
         "animation": False,
+        "backgroundColor": "transparent",
         "legend": {"top": 0},
         "tooltip": {"trigger": "axis", "axisPointer": {"type": "cross"}},
         "axisPointer": {"link": [{"xAxisIndex": "all"}]},
@@ -122,20 +124,19 @@ def _chart_options(
 
 def _stat(label: str, value: str, color: str = "") -> None:
     with ui.card().classes("min-w-36"):
-        ui.label(label).classes("text-caption text-grey-7")
+        ui.label(label).classes("text-caption text-muted")
         ui.label(value).classes(f"text-h6 {color}")
 
 
 def register() -> None:
     @ui.page("/item/{item_id}")
     async def item_page(item_id: int) -> None:
-        header()
         async with runtime.sessions() as session:
             item = await repo.get_item(session, item_id)
             points = await repo.load_history(session, item_id) if item else []
             fx = await repo.latest_fx(session)
 
-        with ui.column().classes("w-full max-w-6xl mx-auto p-4 gap-4"):
+        with page_frame("item"):
             if item is None:
                 ui.label("Item not found.")
                 return
@@ -144,7 +145,7 @@ def register() -> None:
                 t for t in (item.quality, item.rarity, item.item_type, item.exterior) if t
             )
             if traits:
-                ui.label(traits).classes("text-grey-7")
+                ui.label(traits).classes("text-muted")
 
             try:
                 frame = to_frame(points, fx)
@@ -193,7 +194,7 @@ def register() -> None:
                     ui.number(value=20, min=2, max=500, step=1).props("dense").classes("w-20")
                 )
 
-            chart = ui.echart({}).classes("w-full h-[520px]")
+            chart = ui.echart({}, theme=echart_theme()).classes("w-full h-[520px]")
 
             def redraw() -> None:
                 series = _select(frame, range_toggle.value)
@@ -216,7 +217,7 @@ def register() -> None:
                 ui.label(
                     f"Steam returned prices in {currency_name(last_currency)}; converted to USD "
                     f"at Steam's own rate ({fx[last_currency]:.4f} USD per unit)."
-                ).classes("text-caption text-grey-7")
+                ).classes("text-caption text-muted")
 
             with ui.card().classes("w-full max-w-md"):
                 ui.label("Fee calculator").classes("text-subtitle1")
