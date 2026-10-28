@@ -1,5 +1,6 @@
 """Portfolio valuation: positions priced in USD, totals and the value over time."""
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
@@ -12,6 +13,7 @@ from cs2market.analysis import (
     change_over,
     compute_metrics,
     daily_series,
+    price_views,
     recent_trend,
     to_frame,
 )
@@ -119,8 +121,13 @@ class Portfolio:
 
 def value_positions(inputs: Sequence[PositionInput]) -> Portfolio:
     rows = []
+    dailies: dict[int, pd.Series] = {}
     for p in inputs:
-        metrics = compute_metrics(p.history)
+        views = price_views(p.history) if not p.history.empty else None
+        if views is not None:
+            dailies[p.holding_id] = views.daily["price"]
+        metrics = compute_metrics(p.history, views)
+        prices = views.prices if views else pd.Series(dtype=float)
         price = metrics.last_price if metrics else None
         unit_proceeds = seller_proceeds(round(price * 100)) / 100 if price is not None else None
         cost = float(p.buy_price_usd) * p.quantity if p.buy_price_usd is not None else None
@@ -134,6 +141,7 @@ def value_positions(inputs: Sequence[PositionInput]) -> Portfolio:
                 cost,
                 proceeds - cost if proceeds is not None and cost is not None else None,
                 metrics,
+                prices,
             )
         )
     total = sum(value for _, _, value, *_ in rows if value is not None)
@@ -158,9 +166,9 @@ def value_positions(inputs: Sequence[PositionInput]) -> Portfolio:
             rarity=p.rarity,
             quality=p.quality,
             trend=tuple(recent_trend(p.history)),
-            changes=tuple((key, change_over(p.history, span)) for key, span in PERIODS.items()),
+            changes=tuple((key, change_over(prices, span)) for key, span in PERIODS.items()),
         )
-        for p, price, value, proceeds, cost, pnl, metrics in rows
+        for p, price, value, proceeds, cost, pnl, metrics, prices in rows
     ]
     positions.sort(key=lambda pos: pos.value or 0, reverse=True)
     with_pnl = [pos for pos in positions if pos.pnl is not None]
@@ -171,20 +179,24 @@ def value_positions(inputs: Sequence[PositionInput]) -> Portfolio:
         cost=sum(pos.cost for pos in with_pnl if pos.cost is not None),
         pnl=sum(pos.pnl for pos in with_pnl if pos.pnl is not None),
         unpriced=sum(1 for pos in positions if pos.price is None),
-        value_history=value_history(inputs),
+        value_history=value_history(inputs, dailies),
     )
 
 
-def value_history(inputs: Sequence[PositionInput]) -> pd.Series:
+def value_history(
+    inputs: Sequence[PositionInput], dailies: Mapping[int, pd.Series] | None = None
+) -> pd.Series:
     """What today's positions were worth on every past day, at that day's prices.
 
-    Before an item's first sale on record it contributes nothing.
+    Before an item's first sale on record it contributes nothing. `dailies` holds daily
+    price series already built, by holding id.
     """
     columns = {}
     for p in inputs:
         if p.history.empty:
             continue
-        price = daily_series(p.history)["price"]
+        daily = dailies.get(p.holding_id) if dailies else None
+        price = (daily if daily is not None else daily_series(p.history)["price"]).copy()
         price.index = pd.DatetimeIndex(price.index).normalize()
         columns[p.holding_id] = price * p.quantity
     if not columns:
@@ -193,15 +205,33 @@ def value_history(inputs: Sequence[PositionInput]) -> pd.Series:
     return frame.ffill().fillna(0).sum(axis=1)
 
 
+_cache: tuple[tuple[object, ...], Portfolio] | None = None
+_cache_lock = asyncio.Lock()
+
+
 async def load_portfolio(sessions: SessionMaker) -> Portfolio:
-    """Read the active positions with their full history and value them."""
+    """The valued portfolio, recomputed only when prices, rates or positions changed.
+
+    The result is kept in this process's memory; a cheap fingerprint query tells whether
+    anything the valuation depends on has changed since.
+    """
+    global _cache
+    async with _cache_lock:
+        async with sessions() as session:
+            fingerprint = await repo.portfolio_fingerprint(session)
+        if _cache is not None and _cache[0] == fingerprint:
+            return _cache[1]
+        portfolio = await _compute_portfolio(sessions)
+        _cache = (fingerprint, portfolio)
+        return portfolio
+
+
+async def _compute_portfolio(sessions: SessionMaker) -> Portfolio:
     async with sessions() as session:
         holdings = await repo.active_holdings(session)
         fx = await repo.latest_fx(session)
-        histories: dict[int, pd.DataFrame] = {}
-        for _, item in holdings:
-            if item.id not in histories:
-                histories[item.id] = _frame_or_empty(await repo.load_history(session, item.id), fx)
+        points = await repo.load_histories(session, list({item.id for _, item in holdings}))
+    histories = {item_id: _frame_or_empty(rows, fx) for item_id, rows in points.items()}
     return value_positions(
         [
             PositionInput(
@@ -212,7 +242,7 @@ async def load_portfolio(sessions: SessionMaker) -> Portfolio:
                 location=holding.location,
                 quantity=holding.quantity,
                 buy_price_usd=holding.buy_price_usd,
-                history=histories[item.id],
+                history=histories.get(item.id, _EMPTY),
                 icon_url=item.icon_url,
                 rarity=item.rarity,
                 quality=item.quality,
@@ -220,6 +250,9 @@ async def load_portfolio(sessions: SessionMaker) -> Portfolio:
             for holding, item in holdings
         ]
     )
+
+
+_EMPTY = to_frame([], {})
 
 
 def _frame_or_empty(points: Sequence[repo.StoredPoint], fx: Mapping[int, Decimal]) -> pd.DataFrame:

@@ -665,3 +665,45 @@ async def get_or_create_item(session: AsyncSession, market_hash_name: str) -> It
             )
             apply_search_result(item, found, parse_item_traits(market_hash_name, entry.item_type))
     return item
+
+
+async def portfolio_fingerprint(session: AsyncSession) -> tuple[object, ...]:
+    """Changes whenever anything the portfolio valuation depends on changes."""
+    result = await session.execute(
+        text(
+            """
+            SELECT
+                (SELECT max(fetched_at) FROM price_history),
+                (SELECT max(day) FROM fx_rates),
+                (SELECT md5(coalesce(string_agg(
+                    concat_ws(':', id, quantity, buy_price_usd, removed_at, location),
+                    ',' ORDER BY id), ''))
+                 FROM holdings)
+            """
+        )
+    )
+    return tuple(result.one())
+
+
+async def load_histories(
+    session: AsyncSession, item_ids: list[int]
+) -> dict[int, list[StoredPoint]]:
+    """load_history() for several items in one query."""
+    result = await session.execute(
+        select(
+            PricePoint.item_id,
+            PricePoint.ts,
+            PricePoint.resolution,
+            PricePoint.price,
+            PricePoint.volume,
+            PricePoint.currency,
+        )
+        .where(PricePoint.item_id.in_(item_ids))
+        .order_by(PricePoint.item_id, PricePoint.ts)
+    )
+    histories: dict[int, list[StoredPoint]] = {item_id: [] for item_id in item_ids}
+    for item_id, ts, resolution, price, volume, currency in result:
+        histories[item_id].append(
+            StoredPoint(ts, cast(Resolution, resolution), price, volume, currency)
+        )
+    return histories

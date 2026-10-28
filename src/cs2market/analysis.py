@@ -115,15 +115,31 @@ def _change(series: pd.Series, last_ts: pd.Timestamp, period: timedelta) -> floa
     return float(series.iloc[-1] / before.iloc[-1] - 1)
 
 
-def compute_metrics(frame: pd.DataFrame) -> Metrics | None:
-    if frame.empty:
-        return None
+@dataclass(frozen=True)
+class PriceViews:
+    """The series derived from one history frame, built once and shared by the metrics."""
+
+    daily: pd.DataFrame
+    hourly: pd.DataFrame
+    prices: pd.Series  # combined_prices()
+
+
+def price_views(frame: pd.DataFrame) -> PriceViews:
     daily = daily_series(frame)
     hourly = hourly_series(frame)
-    # Finest data available for every period: daily points up to the first hourly one.
-    recent = daily["price"]
+    prices = daily["price"]
     if not hourly.empty:
-        recent = pd.concat([recent[recent.index < hourly.index[0]], hourly["price"]])
+        prices = pd.concat([prices[prices.index < hourly.index[0]], hourly["price"]])
+    return PriceViews(daily=daily, hourly=hourly, prices=prices)
+
+
+def compute_metrics(frame: pd.DataFrame, views: PriceViews | None = None) -> Metrics | None:
+    if frame.empty:
+        return None
+    views = views or price_views(frame)
+    daily = views.daily
+    # Finest data available for every period: daily points up to the first hourly one.
+    recent = views.prices
     last_ts = recent.index[-1]
     last_price = float(recent.iloc[-1])
 
@@ -159,21 +175,16 @@ def recent_trend(frame: pd.DataFrame, days: int = 7, bucket: str = "6h") -> list
     return [float(v) for v in recent.resample(bucket).mean().dropna()]
 
 
-def change_over(frame: pd.DataFrame, period: timedelta | None) -> float | None:
-    """Relative price change over the period up to the latest point; None = all history.
+def change_over(prices: pd.Series, period: timedelta | None) -> float | None:
+    """Relative change of PriceViews.prices over the period; None = all history.
 
     When the history is shorter than the period, the change counts from its first point.
     """
-    if frame.empty:
+    if prices.empty:
         return None
-    daily = daily_series(frame)
-    hourly = hourly_series(frame)
-    series = daily["price"]
-    if not hourly.empty:
-        series = pd.concat([series[series.index < hourly.index[0]], hourly["price"]])
     if period is not None:
-        before = series[: series.index[-1] - period]
+        before = prices[: prices.index[-1] - period]
         if not before.empty:
-            series = series[before.index[-1] :]
-    first = series.iloc[0]
-    return float(series.iloc[-1] / first - 1) if first else None
+            prices = prices[before.index[-1] :]
+    first = prices.iloc[0]
+    return float(prices.iloc[-1] / first - 1) if first else None

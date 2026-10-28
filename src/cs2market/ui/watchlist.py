@@ -123,13 +123,19 @@ def register() -> None:
                     )
                 dialog.open()
 
-            table = ui.table(columns=columns(), rows=await _rows(), row_key="id").classes("w-full")
+            table = (
+                ui.table(columns=columns(), rows=[], row_key="id")
+                .classes("w-full")
+                .props("loading")
+            )
             table.add_slot("body-cell-name", NAME_CELL_SLOT)
             table.add_slot("body-cell-trend", SPARK_CELL_SLOT)
             table.on("rowClick", lambda e: ui.navigate.to(f"/item/{e.args[1]['id']}"))
 
             async def refresh() -> None:
                 table.rows = await _rows()
+                table.props(remove="loading")
                 table.update()
 
+            ui.timer(0.05, refresh, once=True)
             ui.timer(60, refresh)

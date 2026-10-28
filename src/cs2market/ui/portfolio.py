@@ -128,6 +128,9 @@ def register() -> None:
 
             # --- Current totals ---------------------------------------------------------
             totals = ui.row().classes("gap-3")
+            with totals:
+                for _ in range(3):
+                    ui.skeleton(width="10rem", height="4.5rem")
 
             # --- One period for the statistics, the chart and the movers -----------------
             with ui.card().classes("w-full"):
@@ -136,13 +139,17 @@ def register() -> None:
                     ui.space()
                     period_toggle = ui.toggle(period_options(), value="30D").props("dense")
                 stats = ui.row().classes("gap-3")
+                chart_skeleton = ui.skeleton(height="18rem").classes("w-full")
                 chart = ui.echart({}, theme=echart_theme()).classes("w-full h-72")
+                chart.set_visibility(False)
             movers = ui.row().classes("w-full gap-3")
 
             # --- Positions ---------------------------------------------------------------
             ui.label(tr("Positions")).classes("text-h6")
-            table = ui.table(columns=columns(with_pnl=False), rows=[], row_key="id").classes(
-                "w-full"
+            table = (
+                ui.table(columns=columns(with_pnl=False), rows=[], row_key="id")
+                .classes("w-full")
+                .props("loading")
             )
             table.add_slot("body-cell-name", NAME_CELL_SLOT)
             table.add_slot("body-cell-trend", SPARK_CELL_SLOT)
@@ -183,7 +190,10 @@ def register() -> None:
                     with_pnl=any(p.pnl is not None for p in portfolio.positions)
                 )
                 table.rows = [_row(p) for p in portfolio.positions]
+                table.props(remove="loading")
                 table.update()
+                chart_skeleton.set_visibility(False)
+                chart.set_visibility(True)
                 redraw()
                 await _banner(banner)
 
@@ -258,7 +268,8 @@ def register() -> None:
 
             table.on("edit", edit)
             period_toggle.on_value_change(redraw)
-            await refresh()
+            # Show the page at once with placeholders; the data follows a moment later.
+            ui.timer(0.05, refresh, once=True)
             ui.timer(60, refresh)
 
 
