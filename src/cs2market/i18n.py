@@ -82,6 +82,7 @@ RU: dict[str, str] = {
     "Collector is off": "Сборщик выключен",
     "Steam paused us · {minutes} min": "Steam поставил паузу · {minutes} мин",
     "Prices are up to date": "Цены актуальны",
+    "Connect Steam": "Подключить Steam",
     # Settings
     "Appearance": "Внешний вид",
     "Data collection": "Сбор данных",
@@ -196,6 +197,7 @@ RU: dict[str, str] = {
         "Подключите инвентарь Steam, чтобы предметы импортировались автоматически."
     ),
     "Open settings": "Открыть настройки",
+    "Inventory synced {when} · next update {next}": "Инвентарь обновлён {when} · следующее обновление {next}",
     "Added {name}": "Добавлено: {name}",
     "Quantity comes from your Steam inventory.": "Количество берётся из инвентаря Steam.",
     "Quantity": "Количество",

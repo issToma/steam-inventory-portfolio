@@ -18,6 +18,8 @@ from cs2market.ui.common import (
     pct_color,
     rarity_color,
     sparkline_points,
+    time_ago,
+    time_until,
 )
 from cs2market.ui.layout import echart_theme, page_frame
 from cs2market.ui.positions import DELETE, PositionForm, add_position, position_dialog
@@ -281,6 +283,16 @@ async def _banner(container: ui.column) -> None:
         or (account.job is not None and account.job.status == "error")
     )
     if account is not None and not problem:
+        job = account.job
+        if job is not None and account.positions is not None:
+            with container:
+                ui.label(
+                    tr(
+                        "Inventory synced {when} · next update {next}",
+                        when=time_ago(job.updated_at),
+                        next=time_until(job.run_after),
+                    )
+                ).classes("text-caption text-muted")
         return
     with container, ui.card().classes("w-full"), ui.row().classes("w-full items-center"):
         ui.icon("warning" if problem else "link", color="amber" if problem else None)

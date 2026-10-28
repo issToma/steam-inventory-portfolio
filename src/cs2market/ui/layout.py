@@ -8,7 +8,9 @@ from urllib.parse import quote
 
 from nicegui import app, ui
 
+from cs2market import APP_FULL_NAME, APP_NAME
 from cs2market.core.parsers import SearchResult
+from cs2market.db import repo
 from cs2market.i18n import LANGUAGES, Language, current_language, set_language, tr, tr_n
 from cs2market.runtime import runtime
 from cs2market.search import SearchQuery, search_local
@@ -96,9 +98,11 @@ def page_frame(active: str) -> Iterator[None]:
     ui.query("body").classes(f"theme-{theme}")
 
     with ui.left_drawer(value=True, bordered=False).classes("app-drawer p-2") as drawer:
-        with ui.row().classes("items-center gap-2 px-3 py-3"):
-            ui.icon("insights", size="sm")
-            ui.label("cs2market").classes("text-h6")
+        with ui.row().classes("items-center gap-2 px-3 py-3 no-wrap"):
+            ui.icon("inventory_2", size="sm")
+            with ui.column().classes("gap-0"):
+                ui.label(APP_NAME).classes("text-h6 leading-tight")
+                ui.label(APP_FULL_NAME).classes("text-caption text-muted leading-tight")
         _nav(NAV, active)
         ui.space()
         _nav(NAV_BOTTOM, active)
@@ -110,6 +114,7 @@ def page_frame(active: str) -> Iterator[None]:
         _collector_indicator()
         _language_menu()
         _theme_menu(theme)
+        _account_chip()
 
     with ui.column().classes("w-full max-w-6xl mx-auto p-4 gap-4"):
         yield
@@ -175,8 +180,12 @@ def _global_search() -> None:
 
 
 def _collector_indicator() -> None:
+    # Quiet when everything is fresh: just a dot with a tooltip. Text appears only while
+    # something is happening, so the user can see why prices may lag.
     with ui.row().classes("items-center gap-1 no-wrap mr-2"):
         dot = ui.icon("circle", size="xs")
+        with dot:
+            hint = ui.tooltip()
         label = ui.label().classes("text-caption text-muted gt-sm")
 
     async def update() -> None:
@@ -192,12 +201,52 @@ def _collector_indicator() -> None:
                 tr_n(status.queued, "Updating · {n} task queued", "Updating · {n} tasks queued"),
             )
         else:
-            color, text = "green", tr("Prices are up to date")
+            color, text = "green", ""
         dot.props(f"color={color}")
         label.text = text
+        hint.text = text or tr("Prices are up to date")
 
     ui.timer(15, update)
     ui.timer(0.1, update, once=True)
+
+
+def _account_chip() -> None:
+    """The connected Steam account in the top right corner, on every page."""
+    chip = ui.row().classes("items-center no-wrap ml-2")
+
+    async def render() -> None:
+        async with runtime.sessions() as session:
+            account = await repo.get_account(session)
+        chip.clear()
+        with chip:
+            if account is None:
+                ui.button(
+                    tr("Connect Steam"), icon="link", on_click=lambda: ui.navigate.to("/settings")
+                ).props("flat dense no-caps")
+                return
+            profile = account.profile
+            with ui.button().props("flat dense no-caps"):
+                with ui.row().classes("items-center no-wrap gap-2"):
+                    if profile and profile.avatar_url:
+                        ui.image(profile.avatar_url).classes("w-7 h-7 rounded-full")
+                    else:
+                        ui.icon("account_circle")
+                    ui.label(profile.name if profile else account.steam_id64).classes(
+                        "gt-xs max-w-40 truncate"
+                    )
+                with ui.menu():
+                    ui.menu_item(tr("Sync now"), on_click=sync_now)
+                    ui.menu_item(tr("Settings"), on_click=lambda: ui.navigate.to("/settings"))
+
+    async def sync_now() -> None:
+        async with runtime.sessions() as session:
+            account = await repo.get_account(session)
+            if account is not None:
+                await repo.run_job_now(session, repo.JOB_INVENTORY, account.steam_id64)
+                await session.commit()
+        ui.notify(tr("Checking your inventory…"))
+
+    ui.timer(0.1, render, once=True)
 
 
 def _theme_menu(theme: Theme) -> None:
