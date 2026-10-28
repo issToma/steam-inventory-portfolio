@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     collector_enabled: bool = True
     history_refresh_minutes: Annotated[int, Field(ge=30)] = 60
     fx_refresh_hours: Annotated[int, Field(ge=1)] = 24
+    inventory_refresh_hours: Annotated[int, Field(ge=1)] = 6
     # A liquid, fairly expensive item, so that cent rounding barely affects the derived rate.
     fx_reference_item: str = "AK-47 | Redline (Field-Tested)"
 

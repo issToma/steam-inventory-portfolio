@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from cs2market.core.currency import USD
 from cs2market.core.http import SteamError, SteamRateLimitedError
 from cs2market.core.parsers import SteamFormatError, parse_item_traits
-from cs2market.core.steam import SteamMarket
+from cs2market.core.steam import InventoryPrivateError, SteamMarket
 from cs2market.db import repo
 from cs2market.db.session import SessionMaker
 from cs2market.db.tables import FetchJob
@@ -21,6 +21,7 @@ IDLE_POLL = timedelta(seconds=30)
 RETRY_BASE = timedelta(minutes=5)
 RETRY_MAX = timedelta(hours=6)
 NOT_FOUND_RETRY = timedelta(days=7)
+PRIVATE_INVENTORY_RETRY = timedelta(hours=1)
 
 
 class JobFailedError(Exception):
@@ -74,6 +75,7 @@ class Collector:
             repo.JOB_RESOLVE: self._resolve,
             repo.JOB_HISTORY: self._history,
             repo.JOB_GROUP: self._group,
+            repo.JOB_INVENTORY: self._inventory,
             repo.JOB_FX: self._fx,
         }
         handler = handlers.get(job.kind)
@@ -84,6 +86,12 @@ class Collector:
         except SteamRateLimitedError as exc:
             retry_at = self._now() + timedelta(seconds=max(exc.retry_at - time.monotonic(), 0))
             await self._fail(job, str(exc), retry_at, count_attempt=False)
+        except InventoryPrivateError:
+            await self._fail(
+                job,
+                "the inventory is not public: open it in Steam's privacy settings",
+                self._now() + PRIVATE_INVENTORY_RETRY,
+            )
         except JobFailedError as exc:
             await self._fail(job, str(exc), self._now() + NOT_FOUND_RETRY)
         except (SteamError, SteamFormatError) as exc:
@@ -184,6 +192,17 @@ class Collector:
             await session.commit()
         log.info("stored history for %d item(s) from group %s", len(items), job.target)
         return self._now() + timedelta(minutes=self._settings.history_refresh_minutes)
+
+    async def _inventory(self, job: FetchJob) -> datetime | None:
+        async with self._sessions() as session:
+            if await repo.get_setting(session, repo.SETTING_STEAM_ID) != job.target:
+                return None  # the user switched to another account
+        items = await self._market.inventory(job.target)
+        async with self._sessions() as session:
+            count = await repo.sync_inventory(session, items)
+            await session.commit()
+        log.info("inventory: %d item(s), %d sellable position(s)", len(items), count)
+        return self._now() + timedelta(hours=self._settings.inventory_refresh_hours)
 
     async def _fx(self, job: FetchJob) -> datetime | None:
         """Derive Steam's own rate from one item priced in USD and in the local currency."""

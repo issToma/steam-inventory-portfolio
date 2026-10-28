@@ -13,6 +13,7 @@ from alembic.config import Config
 from sqlalchemy import make_url, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from cs2market.db.session import SessionMaker, make_sessionmaker
 from cs2market.db.tables import Base
 from cs2market.settings import get_settings
 
@@ -73,5 +74,15 @@ async def session(database_url: str) -> AsyncIterator[AsyncSession]:
             await conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
         async with AsyncSession(engine, expire_on_commit=False) as session:
             yield session
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture
+async def sessions(database_url: str, session: AsyncSession) -> AsyncIterator[SessionMaker]:
+    """A session factory on the same emptied database, for code that opens its own sessions."""
+    engine = create_async_engine(database_url)
+    try:
+        yield make_sessionmaker(engine)
     finally:
         await engine.dispose()

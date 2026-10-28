@@ -33,6 +33,7 @@ JOB_RESOLVE = "resolve"
 JOB_HISTORY = "history"
 # One market group page holds the history of every variant in the group (docs/SPEC.md, S6).
 JOB_GROUP = "group"
+JOB_INVENTORY = "inventory"
 JOB_FX = "fx"
 
 # word_similarity() threshold for typo matches; 0.35 lets "redlin akk" find the AK Redline.
@@ -535,3 +536,36 @@ async def set_setting(session: AsyncSession, key: str, value: str | None) -> Non
     await session.execute(
         stmt.on_conflict_do_update(index_elements=[AppSetting.key], set_={"value": value})
     )
+
+
+async def run_job_now(session: AsyncSession, kind: str, target: str) -> None:
+    """Queue a job, or move an existing one to the front of the queue."""
+    stmt = insert(FetchJob).values(kind=kind, target=target)
+    await session.execute(
+        stmt.on_conflict_do_update(
+            index_elements=[FetchJob.kind, FetchJob.target], set_={"run_after": func.now()}
+        )
+    )
+
+
+async def get_job(session: AsyncSession, kind: str, target: str) -> FetchJob | None:
+    result = await session.scalars(
+        select(FetchJob).where(FetchJob.kind == kind, FetchJob.target == target)
+    )
+    return result.one_or_none()
+
+
+async def set_inventory_owner(session: AsyncSession, steam_id64: str | None) -> None:
+    """Import the inventory of another account (or stop importing) from now on.
+
+    Positions of the previous account disappear at the next sync, which marks every
+    inventory position missing from the new inventory as removed.
+    """
+    previous = await get_setting(session, SETTING_STEAM_ID)
+    if previous and previous != steam_id64:
+        await delete_job(session, JOB_INVENTORY, previous)
+    await set_setting(session, SETTING_STEAM_ID, steam_id64)
+    if steam_id64:
+        await run_job_now(session, JOB_INVENTORY, steam_id64)
+    else:
+        await sync_inventory(session, [])

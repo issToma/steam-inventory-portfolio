@@ -36,6 +36,14 @@ class SteamRateLimitedError(SteamError):
         self.retry_at = retry_at
 
 
+class SteamHttpError(SteamError):
+    """Steam answered with an unexpected HTTP status."""
+
+    def __init__(self, path: str, status: int) -> None:
+        super().__init__(f"{path}: HTTP {status}")
+        self.status = status
+
+
 class SteamBusyError(SteamError):
     """A request would have to wait longer than its caller allows."""
 
@@ -103,9 +111,17 @@ class SteamClient:
         except ValueError as exc:
             raise SteamError(f"{path}: response is not JSON") from exc
 
-    async def get_text(self, path: str, params: Params | None = None) -> str:
-        """Fetch an HTML page (the market's server-rendered pages embed their data)."""
-        return (await self.get_bytes(path, params)).decode("utf-8", errors="replace")
+    async def get_text(
+        self,
+        path: str,
+        params: Params | None = None,
+        *,
+        priority: bool = False,
+        max_wait: float | None = None,
+    ) -> str:
+        """Fetch an HTML or XML page (market pages embed their data in the HTML)."""
+        body = await self.get_bytes(path, params, priority=priority, max_wait=max_wait)
+        return body.decode("utf-8", errors="replace")
 
     async def get_bytes(
         self,
@@ -183,5 +199,5 @@ class SteamClient:
         if status >= 500:
             raise _TransientError(f"{path}: HTTP {status}")
         if status != 200:
-            raise SteamError(f"{path}: HTTP {status}")
+            raise SteamHttpError(path, status)
         return body

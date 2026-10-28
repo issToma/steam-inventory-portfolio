@@ -3,8 +3,15 @@ from typing import Any, cast
 
 import pytest
 
-from cs2market.core.http import Params, SteamClient
-from cs2market.core.steam import EXTERIOR_TAGS, QUALITY_TAGS, TYPE_TAGS, Quality, SteamMarket
+from cs2market.core.http import Params, SteamClient, SteamHttpError
+from cs2market.core.steam import (
+    EXTERIOR_TAGS,
+    QUALITY_TAGS,
+    TYPE_TAGS,
+    InventoryPrivateError,
+    Quality,
+    SteamMarket,
+)
 
 
 class FakeClient:
@@ -65,3 +72,36 @@ def test_filter_tags_exist_on_steam(load_fixture: Callable[[str], Any]) -> None:
     assert set(TYPE_TAGS.values()) <= known("Type")
     assert {t for tags in QUALITY_TAGS.values() for t in tags} <= known("Quality")
     assert set(EXTERIOR_TAGS.values()) <= known("Exterior")
+
+
+class PagedClient:
+    def __init__(self, responses: list[Any]) -> None:
+        self.responses = responses
+        self.params: list[Params | None] = []
+
+    async def get_json(self, path: str, params: Params | None = None, **kwargs: Any) -> Any:
+        self.params.append(params)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+async def test_inventory_follows_pages(load_fixture: Callable[[str], Any]) -> None:
+    first = load_fixture("inventory.json") | {"more_items": 1, "last_assetid": "1000000003"}
+    client = PagedClient([first, load_fixture("inventory.json")])
+    market = SteamMarket(cast(SteamClient, client))
+
+    items = await market.inventory("76561198000000000")
+
+    assert len(items) == 6
+    assert client.params[1] is not None
+    assert ("start_assetid", "1000000003") in client.params[1]
+
+
+async def test_private_inventory() -> None:
+    client = PagedClient([SteamHttpError("/inventory/x/730/2", 403)])
+    market = SteamMarket(cast(SteamClient, client))
+
+    with pytest.raises(InventoryPrivateError):
+        await market.inventory("76561198000000000")

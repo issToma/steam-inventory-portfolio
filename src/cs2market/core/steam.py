@@ -4,15 +4,19 @@ import json
 from datetime import UTC, datetime
 from typing import Literal
 
-from cs2market.core.http import SteamClient
+from cs2market.core.http import SteamClient, SteamHttpError
 from cs2market.core.parsers import (
     GroupVariant,
+    InventoryItem,
     PriceHistory,
     PriceOverview,
     SearchResult,
+    SteamFormatError,
     parse_group_page,
+    parse_inventory,
     parse_price_history,
     parse_price_overview,
+    parse_profile_xml,
     parse_search_results,
 )
 
@@ -132,6 +136,15 @@ EXTERIOR_NAMES: dict[Exterior, str] = {
 }
 
 
+# 2000 is the largest page Steam serves; bigger inventories come in several pages.
+INVENTORY_PAGE_SIZE = 2000
+INVENTORY_MAX_PAGES = 20
+
+
+class InventoryPrivateError(Exception):
+    """The inventory is not public, so Steam does not show it without logging in."""
+
+
 class SteamMarket:
     def __init__(self, client: SteamClient, appid: int = CS2_APPID) -> None:
         self._client = client
@@ -152,6 +165,38 @@ class SteamMarket:
         """History and descriptions of every variant in a market group, in one request."""
         html = await self._client.get_text(f"/market/listings/{self._appid}/{bucket_group_id}")
         return parse_group_page(html, fetched_at=datetime.now(UTC))
+
+    async def inventory(self, steam_id64: str) -> list[InventoryItem]:
+        """Every item in a public inventory, page by page."""
+        items: list[InventoryItem] = []
+        start: str | None = None
+        for _ in range(INVENTORY_MAX_PAGES):
+            params = [("l", "english"), ("count", str(INVENTORY_PAGE_SIZE))]
+            if start is not None:
+                params.append(("start_assetid", start))
+            try:
+                payload = await self._client.get_json(
+                    f"/inventory/{steam_id64}/{self._appid}/2", params=params
+                )
+            except SteamHttpError as exc:
+                if exc.status in (401, 403):
+                    raise InventoryPrivateError(steam_id64) from exc
+                raise
+            page = parse_inventory(payload)
+            items += page.items
+            if page.next_start is None:
+                return items
+            start = page.next_start
+        raise SteamFormatError(f"inventory: more than {INVENTORY_MAX_PAGES} pages")
+
+    async def resolve_vanity(
+        self, vanity: str, *, priority: bool = False, max_wait: float | None = None
+    ) -> str:
+        """SteamID64 behind a custom profile URL (steamcommunity.com/id/<vanity>)."""
+        xml = await self._client.get_text(
+            f"/id/{vanity}/", params=[("xml", "1")], priority=priority, max_wait=max_wait
+        )
+        return parse_profile_xml(xml)
 
     async def price_overview(self, market_hash_name: str, currency: int) -> PriceOverview:
         payload = await self._client.get_json(
