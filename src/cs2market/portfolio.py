@@ -191,8 +191,9 @@ def value_history(
 ) -> pd.Series:
     """What today's positions were worth on every past day, at that day's prices.
 
-    Before an item's first sale on record it contributes nothing. `dailies` holds daily
-    price series already built, by holding id.
+    It starts on the day the last of the positions' items had its first sale: before that
+    the portfolio as it is today could not have existed, and comparing with a handful of
+    older items would be misleading. `dailies` holds daily price series already built.
     """
     columns = {}
     for p in inputs:
@@ -205,7 +206,8 @@ def value_history(
     if not columns:
         return pd.Series(dtype=float)
     frame = pd.DataFrame(columns).sort_index()
-    return frame.ffill().fillna(0).sum(axis=1)
+    # Days on which every position already has a price.
+    return frame.ffill().dropna().sum(axis=1)
 
 
 _cache: tuple[tuple[object, ...], Portfolio] | None = None

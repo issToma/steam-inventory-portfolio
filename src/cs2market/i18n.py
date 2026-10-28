@@ -202,6 +202,8 @@ RU: dict[str, str] = {
     "Now": "Сейчас",
     "For the period · {period}": "За период · {period}",
     "For all time": "За всё время",
+    "since {date}, when the last of your items came to the market": "с {date}, когда на рынке появился последний из ваших предметов",
+    "from {value}": "с {value}",
     "Change": "Изменение",
     "Highest": "Максимум",
     "Lowest": "Минимум",

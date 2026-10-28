@@ -31,6 +31,9 @@ from cs2market.ui.layout import echart_theme, page_frame
 from cs2market.ui.positions import DELETE, PositionForm, add_position, position_dialog
 from cs2market.ui.search_box import search_box
 
+# Faint grid lines that work on both dark and light backgrounds.
+GRID_COLOR = "rgba(128, 128, 128, 0.18)"
+
 
 def period_options() -> dict[str, str]:
     return {key: tr(key) if key == "All" else key for key in PERIODS}
@@ -104,7 +107,12 @@ def _value_chart(history: pd.Series, period_key: str) -> dict[str, Any]:
         "tooltip": {"trigger": "axis", ":valueFormatter": "v => '$' + v.toFixed(2)"},
         "grid": {"left": 80, "right": 20, "top": 20, "bottom": 30},
         "xAxis": {"type": "time"},
-        "yAxis": {"type": "value", "scale": True, "axisLabel": {":formatter": "v => '$' + v"}},
+        "yAxis": {
+            "type": "value",
+            "scale": True,
+            "axisLabel": {":formatter": "v => '$' + v"},
+            "splitLine": {"lineStyle": {"color": GRID_COLOR}},
+        },
         "dataZoom": [{"type": "inside"}],
         "series": [
             {
@@ -137,17 +145,19 @@ def register() -> None:
                     ui.label(tr("Portfolio value")).classes("text-subtitle1")
                     ui.space()
                     period_toggle = ui.toggle(period_options(), value="30D").props("dense")
-                with ui.row().classes("w-full gap-6 items-stretch"):
+                # Side by side on wide screens; the period group wraps below on narrow ones.
+                with ui.row().classes("w-full gap-x-10 gap-y-4 items-stretch"):
                     with ui.column().classes("gap-1"):
                         ui.label(tr("Now")).classes("text-overline text-muted")
-                        totals = ui.row().classes("gap-3")
+                        totals = ui.row().classes("gap-3 items-stretch no-wrap")
                         with totals:
                             for _ in range(3):
-                                ui.skeleton(width="10rem", height="4.5rem")
-                    ui.separator().props("vertical").classes("gt-sm")
+                                ui.skeleton(width="10rem", height="5.5rem")
                     with ui.column().classes("gap-1"):
-                        period_caption = ui.label().classes("text-overline text-primary")
-                        stats = ui.row().classes("gap-3")
+                        with ui.row().classes("items-baseline gap-2"):
+                            period_caption = ui.label().classes("text-overline text-primary")
+                            period_since = ui.label().classes("text-caption text-muted")
+                        stats = ui.row().classes("gap-3 items-stretch no-wrap")
                 chart_skeleton = ui.skeleton(height="18rem").classes("w-full")
                 chart = ui.echart({}, theme=echart_theme()).classes("w-full h-72")
                 chart.set_visibility(False)
@@ -239,6 +249,15 @@ def register() -> None:
                     if period == "All"
                     else tr("For the period · {period}", period=period)
                 )
+                history = portfolio.value_history
+                period_since.text = (
+                    tr(
+                        "since {date}, when the last of your items came to the market",
+                        date=f"{history.index[0]:%Y-%m-%d}",
+                    )
+                    if period == "All" and not history.empty
+                    else ""
+                )
                 _period_stats(stats, period_stats(portfolio.value_history, PERIODS[period]))
                 _movers(movers, portfolio, period)
 
@@ -324,7 +343,8 @@ def register() -> None:
 
 
 def _stat(label: str, value: str, color: str = "", hint: str = "", *, period: bool = False) -> None:
-    with ui.card().classes("min-w-40" + (" period-card" if period else "")):
+    # One height for every card, with or without a hint line, so rows line up.
+    with ui.card().classes("min-w-40 min-h-[6.75rem]" + (" period-card" if period else "")):
         ui.label(label).classes("text-caption text-muted")
         ui.label(value).classes(f"text-h6 {color}")
         if hint:
@@ -341,6 +361,7 @@ def _period_stats(container: ui.row, stats: PeriodStats | None) -> None:
             f"{'+' if stats.change >= 0 else '-'}${abs(stats.change):,.2f}"
             + (f" ({stats.change_pct:+.1%})" if stats.change_pct is not None else ""),
             pct_color(stats.change),
+            tr("from {value}", value=fmt_usd(stats.start)),
             period=True,
         )
         _stat(tr("Highest"), fmt_usd(stats.high), "", f"{stats.high_on:%Y-%m-%d}", period=True)

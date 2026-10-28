@@ -56,17 +56,20 @@ def to_frame(
     return remove_outliers(frame) if drop_outliers else frame
 
 
-# A point is an outlier only if all of these hold, compared with its neighbours of the same
-# resolution: few sales behind it, far from their median in relative terms, and far outside
-# their usual spread (Hampel filter: median absolute deviation scaled to a std. deviation).
+# Compared with its neighbours of the same resolution, a point is an outlier when it is far
+# outside their usual spread (Hampel filter: median absolute deviation scaled to a standard
+# deviation) and either rests on very few sales and is 30% off their median, or is several
+# times off it whatever the number of sales: Steam's data has days where a cheap skin's
+# median jumps 100x on dozens of odd trades.
 OUTLIER_MAX_SALES = 2
 OUTLIER_MIN_DEVIATION = 0.30
+OUTLIER_EXTREME_RATIO = 4.0
 OUTLIER_MAD_SCALE = 3.0
 OUTLIER_WINDOW = 11
 
 
 def outlier_mask(frame: pd.DataFrame) -> pd.Series:
-    """True for points that are single odd sales, such as one collector's sticker craft."""
+    """True for single odd sales (such as a sticker craft) and for wildly off days."""
     mask = pd.Series(False, index=frame.index)
     for _, group in frame.groupby("resolution"):
         prices = group.sort_values("ts")["price"]
@@ -74,10 +77,11 @@ def outlier_mask(frame: pd.DataFrame) -> pd.Series:
         median = rolling.median()
         mad = (prices - median).abs().rolling(OUTLIER_WINDOW, center=True, min_periods=5).median()
         deviation = (prices - median).abs()
-        odd = (
-            (group.loc[prices.index, "volume"] <= OUTLIER_MAX_SALES)
-            & (deviation > OUTLIER_MIN_DEVIATION * median)
-            & (deviation > OUTLIER_MAD_SCALE * 1.4826 * mad)
+        few_sales = group.loc[prices.index, "volume"] <= OUTLIER_MAX_SALES
+        ratio = (prices / median).where(prices >= median, median / prices)
+        odd = (deviation > OUTLIER_MAD_SCALE * 1.4826 * mad) & (
+            (few_sales & (deviation > OUTLIER_MIN_DEVIATION * median))
+            | (ratio > OUTLIER_EXTREME_RATIO)
         )
         mask.loc[odd.index] = odd.fillna(False)
     return mask

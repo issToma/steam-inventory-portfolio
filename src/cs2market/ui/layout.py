@@ -117,7 +117,7 @@ def page_frame(active: str) -> Iterator[None]:
         _theme_menu(theme)
         _account_chip()
 
-    with ui.column().classes("w-full max-w-6xl mx-auto p-4 gap-4"):
+    with ui.column().classes("w-full max-w-[1600px] mx-auto p-4 gap-4"):
         yield
 
 

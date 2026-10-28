@@ -22,6 +22,7 @@ from cs2market.i18n import tr
 from cs2market.runtime import runtime
 from cs2market.ui.common import fmt_pct, fmt_usd, icon_url, pct_color, rarity_color
 from cs2market.ui.layout import echart_theme, page_frame
+from cs2market.ui.portfolio import GRID_COLOR
 from cs2market.ui.positions import add_position
 
 RANGES = {
@@ -122,8 +123,14 @@ def _chart_options(
                 "scale": True,
                 "gridIndex": 0,
                 "axisLabel": {":formatter": "v => '$' + v"},
+                "splitLine": {"lineStyle": {"color": GRID_COLOR}},
             },
-            {"type": "value", "gridIndex": 1, "splitNumber": 2},
+            {
+                "type": "value",
+                "gridIndex": 1,
+                "splitNumber": 2,
+                "splitLine": {"lineStyle": {"color": GRID_COLOR}},
+            },
         ],
         "dataZoom": [{"type": "inside", "xAxisIndex": [0, 1]}],
         "series": [*lines, volume],

@@ -108,3 +108,12 @@ def test_real_trend_is_not_an_outlier() -> None:
     points = [point(START + timedelta(days=i), str(10 + i), volume=1) for i in range(20)]
 
     assert len(to_frame(points, {})) == 20
+
+
+def test_wild_day_is_dropped_even_with_many_sales() -> None:
+    prices = ["0.03", "0.04", "0.03", "0.03", "0.04", "60", "0.03", "0.04", "0.03", "0.03", "0.04"]
+    points = [point(START + timedelta(days=i), p, volume=57) for i, p in enumerate(prices)]
+
+    frame = to_frame(points, {})
+
+    assert frame["price"].max() < 1

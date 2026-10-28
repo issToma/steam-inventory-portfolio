@@ -85,3 +85,28 @@ def test_position_change_per_period() -> None:
 
     assert pos.change("7D") == pytest.approx(3.0)
     assert pos.change("All") == pytest.approx(3.0)
+
+
+def test_value_history_starts_when_every_item_is_on_the_market() -> None:
+    older = position(1, [10, 10, 10, 10], quantity=1)
+    newer = PositionInput(
+        holding_id=2,
+        item_id=2,
+        name="item 2",
+        source="manual",
+        location=None,
+        quantity=1,
+        buy_price_usd=None,
+        history=to_frame(
+            [
+                StoredPoint(DAY + timedelta(days=2 + i), "day", Decimal(p), 1, 1)
+                for i, p in enumerate(["5", "6"])
+            ],
+            {},
+        ),
+    )
+
+    history = value_positions([older, newer]).value_history
+
+    assert list(history) == [15, 16]
+    assert history.index[0] == pd.Timestamp(DAY + timedelta(days=2))
