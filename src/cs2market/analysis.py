@@ -74,7 +74,7 @@ def daily_series(frame: pd.DataFrame) -> pd.DataFrame:
 
 def _change(series: pd.Series, last_ts: pd.Timestamp, period: timedelta) -> float | None:
     before = series[: last_ts - period]
-    if before.empty:
+    if before.empty or before.iloc[-1] == 0:
         return None
     return float(series.iloc[-1] / before.iloc[-1] - 1)
 
