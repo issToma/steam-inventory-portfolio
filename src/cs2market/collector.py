@@ -9,7 +9,13 @@ from datetime import UTC, datetime, timedelta
 from cs2market import scheduling
 from cs2market.core.currency import USD
 from cs2market.core.http import SteamError, SteamRateLimitedError
-from cs2market.core.parsers import PriceHistory, ProfileRef, SteamFormatError, parse_item_traits
+from cs2market.core.parsers import (
+    InventoryItem,
+    PriceHistory,
+    ProfileRef,
+    SteamFormatError,
+    parse_item_traits,
+)
 from cs2market.core.steam import InventoryPrivateError, SteamMarket
 from cs2market.db import repo
 from cs2market.db.session import SessionMaker
@@ -114,8 +120,9 @@ class Collector:
             await session.commit()
 
     async def _resolve(self, job: FetchJob) -> datetime | None:
-        results = await self._market.search(job.target)
-        match = next((r for r in results if r.market_hash_name == job.target), None)
+        appid, name = repo.split_target(job.target)
+        results = await self._market.search(name, appid=appid)
+        match = next((r for r in results if r.market_hash_name == name), None)
         if match is None:
             # No point fetching history for a name the market does not know.
             async with self._sessions() as session:
@@ -123,19 +130,18 @@ class Collector:
                 await session.commit()
             raise JobFailedError("item not found on the market; check the exact name")
         async with self._sessions() as session:
-            item = await repo.get_item_by_name(session, job.target)
+            item = await repo.get_item_by_name(session, name, appid)
             if item is not None:
-                repo.apply_search_result(
-                    item, match, parse_item_traits(job.target, match.item_type)
-                )
+                repo.apply_search_result(item, match, parse_item_traits(name, match.item_type))
                 if await repo.is_tracked(session, item.id):
                     await repo.ensure_history_job(session, item)
             await session.commit()
         return None
 
     async def _history(self, job: FetchJob) -> datetime | None:
+        appid, name = repo.split_target(job.target)
         async with self._sessions() as session:
-            item = await repo.get_item_by_name(session, job.target)
+            item = await repo.get_item_by_name(session, name, appid)
             if item is None or not await repo.is_tracked(session, item.id):
                 return None
             if item.bucket_group_id:
@@ -143,7 +149,7 @@ class Collector:
                 await repo.ensure_history_job(session, item)
                 await session.commit()
                 return None
-        history = await self._market.price_history(job.target)
+        history = await self._market.price_history(name, appid)
         async with self._sessions() as session:
             await repo.save_history(session, item.id, history)
             stored = await repo.get_item(session, item.id)
@@ -156,15 +162,16 @@ class Collector:
         return await self._next_refresh([(item.id, history)])
 
     async def _group(self, job: FetchJob) -> datetime | None:
+        appid, group = repo.split_target(job.target)
         async with self._sessions() as session:
-            items = await repo.tracked_items_in_group(session, job.target)
+            items = await repo.tracked_items_in_group(session, appid, group)
         if not items:
             return None
         if len(items) == 1:
             # One tracked variant: the per-item JSON is the same single request as the group
             # page, but answers in seconds instead of tens of seconds.
             (item,) = items
-            single = await self._market.price_history(item.market_hash_name)
+            single = await self._market.price_history(item.market_hash_name, appid)
             async with self._sessions() as session:
                 await repo.save_history(session, item.id, single)
                 stored = await repo.get_item(session, item.id)
@@ -180,7 +187,7 @@ class Collector:
                 f"{next_run:%Y-%m-%d %H:%M} UTC",
             )
             return next_run
-        variants = await self._market.group_page(job.target)
+        variants = await self._market.group_page(group, appid)
         async with self._sessions() as session:
             # Every variant goes to the catalog, so local search knows all wears at once.
             await repo.upsert_catalog(
@@ -189,9 +196,11 @@ class Collector:
                     repo.CatalogRecord(
                         market_hash_name=v.market_hash_name,
                         item_type=v.item_type,
-                        bucket_group_id=job.target,
+                        bucket_group_id=group,
                         classid=v.classid,
                         icon_url=v.icon_url,
+                        appid=appid,
+                        name_color=v.name_color,
                     )
                     for v in variants.values()
                 ],
@@ -204,7 +213,7 @@ class Collector:
             history = variant.history if variant else None
             if history is None:
                 # Not embedded in the page: fall back to the per-item endpoint.
-                history = await self._market.price_history(item.market_hash_name)
+                history = await self._market.price_history(item.market_hash_name, appid)
             async with self._sessions() as session:
                 await repo.save_history(session, item.id, history)
                 stored = await repo.get_item(session, item.id)
@@ -262,12 +271,42 @@ class Collector:
                 await session.commit()
             if profile.privacy != "public":
                 raise InventoryPrivateError(job.target)
-        items = await self._market.inventory(job.target)
+        apps = await self._market.inventory_apps(job.target)
         async with self._sessions() as session:
-            count = await repo.sync_inventory(session, items)
+            await repo.save_inventory_games(
+                session,
+                [
+                    repo.InventoryGame(a.appid, a.name, a.icon_url, sum(a.contexts.values()))
+                    for a in apps
+                ],
+            )
+            disabled = await repo.disabled_games(session)
+            await session.commit()
+        items: list[InventoryItem] = []
+        failed: set[int] = set()
+        for app in apps:
+            if app.appid in disabled:
+                continue  # its positions are removed below, like any item that left
+            for contextid, count in app.contexts.items():
+                if count <= 0:
+                    continue
+                try:
+                    items += await self._market.inventory(job.target, app.appid, contextid)
+                except SteamRateLimitedError:
+                    raise
+                except (SteamError, SteamFormatError) as exc:
+                    log.warning("inventory of %s (%d) failed: %s", app.name, app.appid, exc)
+                    failed.add(app.appid)
+        async with self._sessions() as session:
+            count = await repo.sync_inventory(session, items, untouched=frozenset(failed))
             await repo.set_setting(session, repo.SETTING_INVENTORY_POSITIONS, str(count))
             await session.commit()
-        log.info("inventory: %d item(s), %d sellable position(s)", len(items), count)
+        log.info(
+            "inventory: %d item(s) in %d game(s), %d sellable position(s)",
+            len(items),
+            len(apps),
+            count,
+        )
         return self._now() + timedelta(hours=self._settings.inventory_refresh_hours)
 
     async def _fx(self, job: FetchJob) -> datetime | None:

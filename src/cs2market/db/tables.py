@@ -20,6 +20,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+# Rows from before multi-game support belong to Counter-Strike 2.
+from cs2market.core.games import CS2_APPID
+
 # Explicit constraint names keep Alembic migrations deterministic.
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",
@@ -35,12 +38,16 @@ class Base(DeclarativeBase):
 
 
 class Item(Base):
-    """A market item, identified by its market_hash_name."""
+    """A market item, identified by its game (Steam app id) and market_hash_name."""
 
     __tablename__ = "items"
+    __table_args__ = (UniqueConstraint("appid", "market_hash_name"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    market_hash_name: Mapped[str] = mapped_column(Text, unique=True)
+    appid: Mapped[int] = mapped_column(Integer, server_default=str(CS2_APPID))
+    market_hash_name: Mapped[str] = mapped_column(Text)
+    # Steam's colour for the item's name (rarity), for any game.
+    name_color: Mapped[str | None] = mapped_column(Text)
     bucket_group_id: Mapped[str | None] = mapped_column(Text)
     item_type: Mapped[str | None] = mapped_column(Text)
     rarity: Mapped[str | None] = mapped_column(Text)
@@ -131,7 +138,9 @@ class CatalogEntry(Base):
         ),
     )
 
+    appid: Mapped[int] = mapped_column(Integer, primary_key=True, server_default=str(CS2_APPID))
     market_hash_name: Mapped[str] = mapped_column(Text, primary_key=True)
+    name_color: Mapped[str | None] = mapped_column(Text)
     item_type: Mapped[str | None] = mapped_column(Text)
     category: Mapped[str | None] = mapped_column(Text, index=True)
     bucket_group_id: Mapped[str | None] = mapped_column(Text)

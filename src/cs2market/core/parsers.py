@@ -14,6 +14,7 @@ from urllib.parse import unquote, urlparse
 from xml.etree import ElementTree
 
 from cs2market.core.currency import parse_price_text
+from cs2market.core.games import CS2_APPID
 
 Resolution = Literal["day", "hour"]
 
@@ -56,6 +57,8 @@ class SearchResult:
     # Unknown for entries from the local catalog that were never in a Steam search result.
     sell_listings: int | None
     sell_price_usd_cents: int | None
+    appid: int = CS2_APPID
+    name_color: str | None = None
 
 
 @dataclass(frozen=True)
@@ -64,6 +67,13 @@ class ItemTraits:
     category: str | None
     quality: str | None
     exterior: str | None
+
+
+def _color(value: object) -> str | None:
+    """Steam's hex colour ("d32ce6") as CSS ("#d32ce6"); None when missing or malformed."""
+    if isinstance(value, str) and re.fullmatch(r"[0-9a-fA-F]{6}", value):
+        return f"#{value.lower()}"
+    return None
 
 
 def _require(payload: Any, key: str, kind: type | tuple[type, ...], source: str) -> Any:
@@ -114,6 +124,7 @@ class GroupVariant:
     icon_url: str | None
     collection: str | None
     history: PriceHistory | None
+    name_color: str | None = None
 
 
 _SSR_DATA = re.compile(r'<script[^>]*\bid="valve-ssr-data"[^>]*>(.*?)</script>', re.S)
@@ -170,6 +181,7 @@ def parse_group_page(html: str, fetched_at: datetime) -> dict[str, GroupVariant]
             icon_url=description.get("icon_url"),
             collection=collection,
             history=histories.get(name),
+            name_color=_color(description.get("name_color")),
         )
     return variants
 
@@ -208,6 +220,8 @@ def parse_search_results(payload: Any) -> list[SearchResult]:
                 icon_url=description.get("icon_url"),
                 sell_listings=_require(raw, "sell_listings", int, source),
                 sell_price_usd_cents=_require(raw, "sell_price", int, source),
+                appid=int(description.get("appid", CS2_APPID)),
+                name_color=_color(description.get("name_color")),
             )
         )
     return results
@@ -285,6 +299,8 @@ class InventoryItem:
     icon_url: str | None
     marketable: bool
     amount: int
+    appid: int = CS2_APPID
+    name_color: str | None = None
 
 
 @dataclass(frozen=True)
@@ -322,6 +338,8 @@ def parse_inventory(payload: Any) -> InventoryPage:
                 icon_url=description.get("icon_url"),
                 marketable=bool(description.get("marketable")),
                 amount=int(_require(asset, "amount", str, source)),
+                appid=int(description.get("appid", CS2_APPID)),
+                name_color=_color(description.get("name_color")),
             )
         )
     more = payload.get("more_items") == 1
@@ -395,3 +413,47 @@ def parse_profile_xml(xml: str) -> SteamProfile:
         else f"https://steamcommunity.com/profiles/{steam_id}/",
         privacy=field("privacyState") or "private",
     )
+
+
+@dataclass(frozen=True)
+class InventoryApp:
+    """A game in which the user has items, as listed on their inventory page."""
+
+    appid: int
+    name: str
+    icon_url: str | None
+    # Item count per inventory context id.
+    contexts: dict[str, int]
+
+
+_APP_CONTEXT_DATA = re.compile(r"g_rgAppContextData\s*=\s*(\{.*?\});\s*\n", re.S)
+
+
+def parse_inventory_apps(html: str) -> list[InventoryApp]:
+    """Parse the games list of /profiles/<id>/inventory/ (public inventories only)."""
+    source = "inventory page"
+    match = _APP_CONTEXT_DATA.search(html)
+    if match is None:
+        raise SteamFormatError(f"{source}: no g_rgAppContextData")
+    try:
+        data = json.loads(match.group(1))
+    except ValueError as exc:
+        raise SteamFormatError(f"{source}: games list is not JSON") from exc
+    if not isinstance(data, dict):  # Steam sends [] when there is nothing to show
+        return []
+    apps = []
+    for appid, app in data.items():
+        contexts = {
+            str(cid): int(ctx.get("asset_count", 0))
+            for cid, ctx in (app.get("rgContexts") or {}).items()
+            if isinstance(ctx, dict)
+        }
+        apps.append(
+            InventoryApp(
+                appid=int(appid),
+                name=str(app.get("name") or appid),
+                icon_url=app.get("icon"),
+                contexts=contexts,
+            )
+        )
+    return apps

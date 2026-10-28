@@ -6,6 +6,7 @@ from cs2market.collector import Collector
 from cs2market.core.parsers import (
     GroupVariant,
     HistoryPoint,
+    InventoryApp,
     InventoryItem,
     PriceHistory,
     ProfileRef,
@@ -32,7 +33,14 @@ class FakeMarket:
         assert ref.steam_id64 is not None
         return SteamProfile(ref.steam_id64, "Tester", None, "https://example", self._privacy)
 
-    async def inventory(self, steam_id64: str) -> list[InventoryItem]:
+    async def inventory_apps(self, steam_id64: str) -> list[InventoryApp]:
+        if isinstance(self._inventory, Exception):
+            raise self._inventory
+        return [InventoryApp(730, "Counter-Strike 2", None, {"2": len(self._inventory)})]
+
+    async def inventory(
+        self, steam_id64: str, appid: int = 730, contextid: str = "2"
+    ) -> list[InventoryItem]:
         self.calls.append(steam_id64)
         if isinstance(self._inventory, Exception):
             raise self._inventory
@@ -105,11 +113,11 @@ class HistoryMarket:
     def _history() -> PriceHistory:
         return PriceHistory(1, [HistoryPoint(NOW, "hour", Decimal("50"), 30)])
 
-    async def price_history(self, name: str) -> PriceHistory:
+    async def price_history(self, name: str, appid: int = 730) -> PriceHistory:
         self.calls.append(f"item:{name}")
         return self._history()
 
-    async def group_page(self, group: str) -> dict[str, GroupVariant]:
+    async def group_page(self, group: str, appid: int = 730) -> dict[str, GroupVariant]:
         self.calls.append(f"group:{group}")
         names = ["AK-47 | Redline (Field-Tested)", "AK-47 | Redline (Minimal Wear)"]
         return {
@@ -126,7 +134,7 @@ async def run_group_job(sessions: SessionMaker, market: HistoryMarket, names: li
             found = SearchResult(name, "Classified Rifle", "G1", None, None, None, None)
             await repo.add_manual_holding(session, name, quantity=1, found=found)
         await session.commit()
-        job = await repo.get_job(session, repo.JOB_GROUP, "G1")
+        job = await repo.get_job(session, repo.JOB_GROUP, "730:G1")
     assert job is not None
     await collector(sessions, market)._run(job)
 
@@ -138,7 +146,7 @@ async def test_single_variant_group_uses_the_light_endpoint(sessions: SessionMak
 
     assert market.calls == ["item:AK-47 | Redline (Field-Tested)"]
     async with sessions() as session:
-        job = await repo.get_job(session, repo.JOB_GROUP, "G1")
+        job = await repo.get_job(session, repo.JOB_GROUP, "730:G1")
     assert job is not None
     # $50 held, 1 sale a day: valuable and liquid enough for the hourly refresh.
     assert job.run_after == NOW.replace(hour=13)
@@ -175,8 +183,54 @@ async def test_fresh_public_profile_is_not_fetched_again(sessions: SessionMaker)
         await session.commit()
         job = await repo.get_job(session, repo.JOB_INVENTORY, STEAM_ID)
     assert job is not None
-    market = FakeMarket([])
+    case = InventoryItem("Kilowatt Case", "Base Grade Container", "G1", "1", None, True, 1)
+    market = FakeMarket([case])
 
     await collector(sessions, market)._run(job)
 
     assert market.calls == [STEAM_ID]
+
+
+class TwoGamesMarket(FakeMarket):
+    async def inventory_apps(self, steam_id64: str) -> list[InventoryApp]:
+        return [
+            InventoryApp(730, "Counter-Strike 2", None, {"2": 1}),
+            InventoryApp(252490, "Rust", None, {"2": 1}),
+        ]
+
+    async def inventory(
+        self, steam_id64: str, appid: int = 730, contextid: str = "2"
+    ) -> list[InventoryItem]:
+        self.calls.append(f"{appid}/{contextid}")
+        if appid == 730:
+            return [
+                InventoryItem("Kilowatt Case", "Base Grade Container", "G1", "1", None, True, 1)
+            ]
+        return [InventoryItem("Tempered Hoodie", "Hoodie", None, "9", None, True, 1, appid=252490)]
+
+
+async def test_inventory_of_every_game_is_imported(sessions: SessionMaker) -> None:
+    market = TwoGamesMarket([])
+
+    await run_inventory_job(sessions, market)
+
+    assert market.calls[1:] == ["730/2", "252490/2"]
+    async with sessions() as session:
+        held = sorted((i.appid, i.market_hash_name) for _, i in await repo.active_holdings(session))
+        games = [g.name for g in await repo.inventory_games(session)]
+    assert held == [(730, "Kilowatt Case"), (252490, "Tempered Hoodie")]
+    assert games == ["Counter-Strike 2", "Rust"]
+
+
+async def test_switched_off_game_is_not_imported(sessions: SessionMaker) -> None:
+    async with sessions() as session:
+        await repo.set_game_enabled(session, 252490, False)
+        await session.commit()
+    market = TwoGamesMarket([])
+
+    await run_inventory_job(sessions, market)
+
+    assert "252490/2" not in market.calls
+    async with sessions() as session:
+        held = [i.appid for _, i in await repo.active_holdings(session)]
+    assert held == [730]

@@ -31,7 +31,7 @@ async def test_inventory_sync_aggregates_and_skips_unsellable(session: AsyncSess
 
     assert count == 1
     assert await active(session) == {"Kilowatt Case": ("inventory", 2)}
-    assert ("group", "G1") in await jobs(session)
+    assert ("group", "730:G1") in await jobs(session)
 
 
 async def test_item_leaving_and_returning_keeps_purchase_price(session: AsyncSession) -> None:
@@ -70,12 +70,12 @@ async def test_inventory_quantity_is_not_editable(session: AsyncSession) -> None
 
 async def test_deleting_last_position_stops_collection(session: AsyncSession) -> None:
     holding = await repo.add_manual_holding(session, "Some Sticker", quantity=1)
-    assert ("history", "Some Sticker") in await jobs(session)
+    assert ("history", "730:Some Sticker") in await jobs(session)
 
     await repo.delete_manual_holding(session, holding.id)
 
     assert await active(session) == {}
-    assert ("history", "Some Sticker") not in await jobs(session)
+    assert ("history", "730:Some Sticker") not in await jobs(session)
 
 
 async def test_watchlist_removal_keeps_collecting_held_items(session: AsyncSession) -> None:
@@ -84,7 +84,7 @@ async def test_watchlist_removal_keeps_collecting_held_items(session: AsyncSessi
 
     await repo.remove_from_watchlist(session, item.id)
 
-    assert ("history", "Some Sticker") in await jobs(session)
+    assert ("history", "730:Some Sticker") in await jobs(session)
 
 
 async def test_settings(session: AsyncSession) -> None:
@@ -130,3 +130,25 @@ async def test_unpinned_position_follows_the_inventory_again(session: AsyncSessi
     await repo.sync_inventory(session, [inv("Kilowatt Case", amount=2)])
 
     assert await active(session) == {"Kilowatt Case": ("inventory", 2)}
+
+
+def rust(name: str) -> InventoryItem:
+    return InventoryItem(name, "Hoodie", None, "9", None, True, 1, appid=252490)
+
+
+async def test_same_name_in_two_games_is_two_items(session: AsyncSession) -> None:
+    await repo.sync_inventory(session, [inv("Wooden Box"), rust("Wooden Box")])
+
+    holdings = await repo.active_holdings(session)
+
+    assert sorted(item.appid for _, item in holdings) == [730, 252490]
+
+
+async def test_game_that_failed_to_load_keeps_its_positions(session: AsyncSession) -> None:
+    await repo.sync_inventory(session, [inv("Kilowatt Case"), rust("Tempered Hoodie")])
+
+    await repo.sync_inventory(session, [inv("Kilowatt Case")], untouched=frozenset({252490}))
+    assert set(await active(session)) == {"Kilowatt Case", "Tempered Hoodie"}
+
+    await repo.sync_inventory(session, [inv("Kilowatt Case")])
+    assert set(await active(session)) == {"Kilowatt Case"}

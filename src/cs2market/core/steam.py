@@ -4,9 +4,11 @@ import json
 from datetime import UTC, datetime
 from typing import Literal
 
+from cs2market.core.games import CS2_APPID
 from cs2market.core.http import SteamClient, SteamHttpError
 from cs2market.core.parsers import (
     GroupVariant,
+    InventoryApp,
     InventoryItem,
     PriceHistory,
     PriceOverview,
@@ -16,13 +18,12 @@ from cs2market.core.parsers import (
     SteamProfile,
     parse_group_page,
     parse_inventory,
+    parse_inventory_apps,
     parse_price_history,
     parse_price_overview,
     parse_profile_xml,
     parse_search_results,
 )
-
-CS2_APPID = 730
 
 # The market's React frontend sends this header with its query actions.
 _QUERY_ACTION = {"x-valve-request-type": "queryAction"}
@@ -151,30 +152,45 @@ class InventoryPrivateError(Exception):
 
 
 class SteamMarket:
-    def __init__(self, client: SteamClient, appid: int = CS2_APPID) -> None:
-        self._client = client
-        self._appid = appid
+    """Steam Community Market access. Every call names its game by Steam app id."""
 
-    async def price_history(self, market_hash_name: str) -> PriceHistory:
+    def __init__(self, client: SteamClient) -> None:
+        self._client = client
+
+    async def price_history(self, market_hash_name: str, appid: int = CS2_APPID) -> PriceHistory:
         payload = await self._client.get_json(
             "/market/actions",
             params={
                 "q": "QueryPriceHistory",
-                "qp": json.dumps([self._appid, market_hash_name], ensure_ascii=False),
+                "qp": json.dumps([appid, market_hash_name], ensure_ascii=False),
             },
             headers=_QUERY_ACTION,
         )
         return parse_price_history(payload, fetched_at=datetime.now(UTC))
 
-    async def group_page(self, bucket_group_id: str) -> dict[str, GroupVariant]:
+    async def group_page(
+        self, bucket_group_id: str, appid: int = CS2_APPID
+    ) -> dict[str, GroupVariant]:
         """History and descriptions of every variant in a market group, in one request."""
         html = await self._client.get_text(
-            f"/market/listings/{self._appid}/{bucket_group_id}", request_timeout=GROUP_PAGE_TIMEOUT
+            f"/market/listings/{appid}/{bucket_group_id}", request_timeout=GROUP_PAGE_TIMEOUT
         )
         return parse_group_page(html, fetched_at=datetime.now(UTC))
 
-    async def inventory(self, steam_id64: str) -> list[InventoryItem]:
-        """Every item in a public inventory, page by page."""
+    async def inventory_apps(self, steam_id64: str) -> list[InventoryApp]:
+        """The games in which a public inventory has items, with item counts."""
+        try:
+            html = await self._client.get_text(f"/profiles/{steam_id64}/inventory/")
+        except SteamHttpError as exc:
+            if exc.status in (401, 403):
+                raise InventoryPrivateError(steam_id64) from exc
+            raise
+        return parse_inventory_apps(html)
+
+    async def inventory(
+        self, steam_id64: str, appid: int = CS2_APPID, contextid: str = "2"
+    ) -> list[InventoryItem]:
+        """Every item of one game in a public inventory, page by page."""
         items: list[InventoryItem] = []
         start: str | None = None
         for _ in range(INVENTORY_MAX_PAGES):
@@ -183,7 +199,7 @@ class SteamMarket:
                 params.append(("start_assetid", start))
             try:
                 payload = await self._client.get_json(
-                    f"/inventory/{steam_id64}/{self._appid}/2", params=params
+                    f"/inventory/{steam_id64}/{appid}/{contextid}", params=params
                 )
             except SteamHttpError as exc:
                 if exc.status in (401, 403):
@@ -206,11 +222,13 @@ class SteamMarket:
         )
         return parse_profile_xml(xml)
 
-    async def price_overview(self, market_hash_name: str, currency: int) -> PriceOverview:
+    async def price_overview(
+        self, market_hash_name: str, currency: int, appid: int = CS2_APPID
+    ) -> PriceOverview:
         payload = await self._client.get_json(
             "/market/priceoverview/",
             params={
-                "appid": str(self._appid),
+                "appid": str(appid),
                 "currency": str(currency),
                 "market_hash_name": market_hash_name,
             },
@@ -221,25 +239,27 @@ class SteamMarket:
         self,
         query: str,
         *,
+        appid: int = CS2_APPID,
         kind: ItemKind | None = None,
         quality: Quality | None = None,
         exterior: Exterior | None = None,
         priority: bool = False,
         max_wait: float | None = None,
     ) -> list[SearchResult]:
-        """Search the catalog with optional Steam-side filters. At most 10 results.
+        """Search the market of one game. At most 10 results.
 
-        An exterior filter excludes everything without wear (stickers, cases, ...), so the UI
-        only offers it together with a skin kind.
+        The type, quality and wear filters use CS2's tags and apply to CS2 only. An exterior
+        filter excludes everything without wear, so the UI only offers it with a skin kind.
         """
-        category = f"category_{self._appid}_"
-        params = [("appid", str(self._appid)), ("norender", "1"), ("query", query)]
-        if kind is not None:
-            params.append((f"{category}Type[]", TYPE_TAGS[kind]))
-        if quality is not None:
-            params += [(f"{category}Quality[]", tag) for tag in QUALITY_TAGS[quality]]
-        if exterior is not None:
-            params.append((f"{category}Exterior[]", EXTERIOR_TAGS[exterior]))
+        params = [("appid", str(appid)), ("norender", "1"), ("query", query)]
+        if appid == CS2_APPID:
+            category = f"category_{appid}_"
+            if kind is not None:
+                params.append((f"{category}Type[]", TYPE_TAGS[kind]))
+            if quality is not None:
+                params += [(f"{category}Quality[]", tag) for tag in QUALITY_TAGS[quality]]
+            if exterior is not None:
+                params.append((f"{category}Exterior[]", EXTERIOR_TAGS[exterior]))
         payload = await self._client.get_json(
             "/market/search/render/", params=params, priority=priority, max_wait=max_wait
         )

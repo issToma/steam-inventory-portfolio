@@ -12,6 +12,7 @@ from cs2market.core.parsers import (
     market_hash_name_from_input,
     parse_group_page,
     parse_inventory,
+    parse_inventory_apps,
     parse_item_traits,
     parse_price_history,
     parse_price_overview,
@@ -274,3 +275,21 @@ def test_profile_xml_with_custom_url_and_private() -> None:
 def test_profile_xml_errors(xml: str) -> None:
     with pytest.raises(SteamFormatError):
         parse_profile_xml(xml)
+
+
+def test_inventory_apps() -> None:
+    html = (FIXTURES / "inventory_page.html").read_text(encoding="utf-8")
+
+    apps = {app.appid: app for app in parse_inventory_apps(html)}
+
+    assert set(apps) == {730, 753, 252490}
+    assert apps[730].name == "Counter-Strike 2"
+    assert apps[753].contexts == {"6": 49}
+    assert apps[252490].contexts == {"2": 2}
+
+
+def test_inventory_items_carry_game_and_colour(load_fixture: Callable[[str], Any]) -> None:
+    items = parse_inventory(load_fixture("inventory.json")).items
+
+    assert {i.appid for i in items} == {730}
+    assert all(i.name_color is None or i.name_color.startswith("#") for i in items)
