@@ -8,6 +8,22 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.1-alpine
+        env:
+          POSTGRES_USER: cs2market
+          POSTGRES_PASSWORD: cs2market
+          POSTGRES_DB: cs2market
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cs2market"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CS2M_TEST_DATABASE_URL: postgresql+asyncpg://cs2market:cs2market@localhost:5432/cs2market_test
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6

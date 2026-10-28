@@ -1,18 +1,12 @@
-import asyncio
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 
 from cs2market import __version__
 from cs2market.core.http import SteamBusyError, SteamError
 from cs2market.core.steam import Exterior, ItemKind, Quality
-from cs2market.runtime import runtime
-
-# A search waits for the shared Steam client: at most one background request plus the
-# request interval. It gives up instead of waiting out a 429 cool-down.
-SEARCH_MAX_WAIT = 60.0
-SEARCH_TIMEOUT = 150.0
+from cs2market.search import SearchQuery, search_local, search_steam
 
 router = APIRouter(prefix="/api")
 
@@ -28,20 +22,15 @@ async def search(
     kind: ItemKind | None = None,
     quality: Quality | None = None,
     exterior: Exterior | None = None,
+    source: Literal["steam", "local"] = "steam",
 ) -> list[dict[str, Any]]:
-    """Search the Steam market (at most 10 results), ahead of background requests."""
+    """Search items. source=steam asks Steam (at most 10 results, ahead of background
+    requests); source=local searches the catalog of items seen before, instantly."""
+    query = SearchQuery(q, kind=kind, quality=quality, exterior=exterior)
+    if source == "local":
+        return [asdict(r) for r in await search_local(query)]
     try:
-        results = await asyncio.wait_for(
-            runtime.market.search(
-                q,
-                kind=kind,
-                quality=quality,
-                exterior=exterior,
-                priority=True,
-                max_wait=SEARCH_MAX_WAIT,
-            ),
-            timeout=SEARCH_TIMEOUT,
-        )
+        results = await search_steam(query)
     except SteamBusyError as exc:
         raise HTTPException(503, str(exc)) from exc
     except (SteamError, TimeoutError) as exc:

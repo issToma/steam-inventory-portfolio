@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from itertools import batched
-from typing import cast
+from typing import Any, cast
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,13 +17,23 @@ from cs2market.core.parsers import (
     SearchResult,
     parse_item_traits,
 )
-from cs2market.db.tables import FetchJob, FxRate, Item, PricePoint, WatchlistEntry
+from cs2market.db.tables import (
+    CatalogEntry,
+    FetchJob,
+    FxRate,
+    Item,
+    PricePoint,
+    WatchlistEntry,
+)
 
 JOB_RESOLVE = "resolve"
 JOB_HISTORY = "history"
 # One market group page holds the history of every variant in the group (docs/SPEC.md, S6).
 JOB_GROUP = "group"
 JOB_FX = "fx"
+
+# word_similarity() threshold for typo matches; 0.35 lets "redlin akk" find the AK Redline.
+_MIN_SIMILARITY = 0.35
 
 # asyncpg allows 32767 bind parameters per statement; a price point uses 6.
 _UPSERT_BATCH = 2000
@@ -268,3 +278,83 @@ async def jobs_for(session: AsyncSession, items: list[Item]) -> dict[int, FetchJ
             if current is None or (job.status == "error" and current.status != "error"):
                 jobs[item.id] = job
     return jobs
+
+
+@dataclass(frozen=True)
+class CatalogRecord:
+    market_hash_name: str
+    item_type: str | None
+    bucket_group_id: str | None = None
+    classid: str | None = None
+    icon_url: str | None = None
+    sell_price_usd_cents: int | None = None
+    sell_listings: int | None = None
+
+
+async def upsert_catalog(session: AsyncSession, records: list[CatalogRecord]) -> None:
+    """Remember items; a record without a price keeps the price we already know."""
+    for record in records:
+        category = (
+            parse_item_traits(record.market_hash_name, record.item_type).category
+            if record.item_type
+            else None
+        )
+        values: dict[str, object] = {
+            "market_hash_name": record.market_hash_name,
+            "item_type": record.item_type,
+            "category": category,
+            "bucket_group_id": record.bucket_group_id,
+            "classid": record.classid,
+            "icon_url": record.icon_url,
+        }
+        if record.sell_price_usd_cents is not None:
+            values |= {
+                "sell_price_usd_cents": record.sell_price_usd_cents,
+                "sell_listings": record.sell_listings,
+                "price_seen_at": func.now(),
+            }
+        stmt = insert(CatalogEntry).values(**values)
+        update_set: dict[str, Any] = {
+            key: func.coalesce(stmt.excluded[key], CatalogEntry.__table__.c[key])
+            for key in values
+            if key != "market_hash_name"
+        }
+        update_set["seen_at"] = func.now()
+        await session.execute(
+            stmt.on_conflict_do_update(
+                index_elements=[CatalogEntry.market_hash_name], set_=update_set
+            )
+        )
+
+
+async def search_catalog(
+    session: AsyncSession,
+    text: str,
+    *,
+    category: str | None = None,
+    quality: str | None = None,
+    exterior_name: str | None = None,
+    limit: int = 20,
+) -> list[CatalogEntry]:
+    """Typo-tolerant search: names containing every word first, then trigram matches."""
+    name = CatalogEntry.market_hash_name
+    words = text.split()
+    query = select(CatalogEntry)
+    if words:
+        contains_all = and_(*(name.icontains(w, autoescape=True) for w in words))
+        similarity = func.word_similarity(text, name)
+        query = query.where(or_(contains_all, similarity >= _MIN_SIMILARITY)).order_by(
+            case((contains_all, 0), else_=1), similarity.desc()
+        )
+    if category is not None:
+        query = query.where(CatalogEntry.category == category)
+    if quality == "stattrak":
+        query = query.where(name.contains("StatTrak™"))
+    elif quality == "souvenir":
+        query = query.where(name.startswith("Souvenir "))
+    elif quality == "normal":
+        query = query.where(~name.contains("StatTrak™"), ~name.startswith("Souvenir "))
+    if exterior_name is not None:
+        query = query.where(name.endswith(f"({exterior_name})"))
+    query = query.order_by(CatalogEntry.sell_listings.desc().nulls_last()).limit(limit)
+    return list(await session.scalars(query))

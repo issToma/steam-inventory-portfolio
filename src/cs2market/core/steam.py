@@ -75,6 +75,29 @@ TYPE_TAGS: dict[ItemKind, str] = {
     "collectible": "tag_CSGO_Type_Collectible",
 }
 
+# The category part of an item's type string ("StatTrak™ Classified Rifle" -> "Rifle"),
+# used to apply the type filter to the local catalog.
+CATEGORY_BY_KIND: dict[ItemKind, str] = {
+    "rifle": "Rifle",
+    "sniper_rifle": "Sniper Rifle",
+    "pistol": "Pistol",
+    "smg": "SMG",
+    "shotgun": "Shotgun",
+    "machinegun": "Machinegun",
+    "equipment": "Equipment",
+    "knife": "Knife",
+    "gloves": "Gloves",
+    "sticker": "Sticker",
+    "case": "Container",
+    "agent": "Agent",
+    "graffiti": "Graffiti",
+    "patch": "Patch",
+    "charm": "Charm",
+    "music_kit": "Music Kit",
+    "key": "Key",
+    "collectible": "Collectible",
+}
+
 # Only these kinds have wear and StatTrak/Souvenir variants.
 SKIN_KINDS: frozenset[ItemKind] = frozenset(
     {
@@ -98,6 +121,14 @@ EXTERIOR_TAGS: dict[Exterior, str] = {
     "ft": "tag_WearCategory2",
     "ww": "tag_WearCategory3",
     "bs": "tag_WearCategory4",
+}
+
+EXTERIOR_NAMES: dict[Exterior, str] = {
+    "fn": "Factory New",
+    "mw": "Minimal Wear",
+    "ft": "Field-Tested",
+    "ww": "Well-Worn",
+    "bs": "Battle-Scarred",
 }
 
 

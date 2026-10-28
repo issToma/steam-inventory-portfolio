@@ -3,9 +3,9 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from cs2market import __version__
+from cs2market import __version__, api
 from cs2market.main import create_api
-from cs2market.runtime import runtime
+from cs2market.search import SearchQuery
 
 
 def test_health() -> None:
@@ -25,14 +25,13 @@ def test_search_rejects_unknown_filters() -> None:
 
 
 def test_search_passes_all_filters(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[dict[str, Any]] = []
+    calls: list[SearchQuery] = []
 
-    class FakeMarket:
-        async def search(self, query: str, **kwargs: Any) -> list[Any]:
-            calls.append({"query": query, **kwargs})
-            return []
+    async def fake_search(query: SearchQuery) -> list[Any]:
+        calls.append(query)
+        return []
 
-    monkeypatch.setattr(runtime, "_market", FakeMarket())
+    monkeypatch.setattr(api, "search_steam", fake_search)
     client = TestClient(create_api())
 
     response = client.get(
@@ -41,9 +40,10 @@ def test_search_passes_all_filters(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
     assert response.status_code == 200
-    assert calls[0]["query"] == "doppler"
-    assert (calls[0]["kind"], calls[0]["quality"], calls[0]["exterior"]) == (
-        "knife",
-        "stattrak",
-        "fn",
-    )
+    assert calls == [SearchQuery("doppler", kind="knife", quality="stattrak", exterior="fn")]
+
+
+def test_search_rejects_unknown_source() -> None:
+    client = TestClient(create_api())
+
+    assert client.get("/api/search", params={"q": "x", "source": "web"}).status_code == 422

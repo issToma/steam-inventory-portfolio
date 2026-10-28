@@ -1,24 +1,20 @@
-import asyncio
-import time
-from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from nicegui import ui
 
 from cs2market.analysis import MissingRateError, compute_metrics, to_frame
-from cs2market.api import SEARCH_MAX_WAIT, SEARCH_TIMEOUT
 from cs2market.core.http import SteamBusyError, SteamError
 from cs2market.core.parsers import SearchResult, SteamFormatError, market_hash_name_from_input
 from cs2market.core.steam import SKIN_KINDS, Exterior, ItemKind, Quality
 from cs2market.db import repo
 from cs2market.runtime import runtime
+from cs2market.search import SearchQuery, search_local, search_steam
 from cs2market.ui.common import fmt_pct, fmt_usd, header
 
 # Enough history for the 30-day metrics on the overview.
 OVERVIEW_WINDOW = timedelta(days=35)
 
-SEARCH_CACHE_TTL = 600.0
 ICON_URL = "https://community.akamai.steamstatic.com/economy/image/{}/62fx62f"
 
 ANY = "any"
@@ -57,37 +53,6 @@ EXTERIOR_OPTIONS: dict[str, str] = {
     "ww": "WW",
     "bs": "BS",
 }
-
-
-@dataclass(frozen=True)
-class SearchQuery:
-    text: str
-    kind: ItemKind | None = None
-    quality: Quality | None = None
-    exterior: Exterior | None = None
-
-
-_search_cache: dict[SearchQuery, tuple[float, list[SearchResult]]] = {}
-
-
-async def _search(query: SearchQuery) -> list[SearchResult]:
-    key = replace(query, text=query.text.casefold())
-    cached = _search_cache.get(key)
-    if cached is not None and time.monotonic() - cached[0] < SEARCH_CACHE_TTL:
-        return cached[1]
-    results = await asyncio.wait_for(
-        runtime.market.search(
-            query.text,
-            kind=query.kind,
-            quality=query.quality,
-            exterior=query.exterior,
-            priority=True,
-            max_wait=SEARCH_MAX_WAIT,
-        ),
-        timeout=SEARCH_TIMEOUT,
-    )
-    _search_cache[key] = (time.monotonic(), results)
-    return results
 
 
 COLUMNS: list[dict[str, Any]] = [
@@ -147,10 +112,10 @@ def register() -> None:
             ui.label("Watchlist").classes("text-h5")
             with ui.row().classes("w-full items-center"):
                 query_input = ui.input(
-                    "Search the market or paste an item URL",
+                    "Find an item (name, part of it, or a market URL)",
                     placeholder="redline, breakout case, karambit doppler…",
                 ).classes("grow")
-                search_button = ui.button("Search", icon="search")
+                steam_button = ui.button("Search Steam", icon="travel_explore")
             with ui.row().classes("items-center gap-4"):
                 kind_select = ui.select(KIND_OPTIONS, value=ANY).props("dense outlined")
                 quality_toggle = ui.toggle(QUALITY_OPTIONS, value=ANY).props("dense no-caps")
@@ -175,7 +140,9 @@ def register() -> None:
                 ui.notify(f"Added {result.market_hash_name}; history arrives in about a minute")
                 await refresh()
 
-            def show_results(results: list[SearchResult], watched: set[str]) -> None:
+            async def show_results(results: list[SearchResult]) -> None:
+                async with runtime.sessions() as session:
+                    watched = {i.market_hash_name for i in await repo.watchlist_items(session)}
                 results_box.clear()
                 with results_box:
                     for result in results:
@@ -188,10 +155,11 @@ def register() -> None:
                             with ui.column().classes("grow gap-0"):
                                 ui.label(result.market_hash_name)
                                 ui.label(result.item_type).classes("text-caption text-grey-7")
-                            ui.label(
-                                f"{fmt_usd(result.sell_price_usd_cents / 100)} · "
-                                f"{result.sell_listings:,} listed"
-                            ).classes("text-grey-8")
+                            if result.sell_price_usd_cents is not None:
+                                ui.label(
+                                    f"{fmt_usd(result.sell_price_usd_cents / 100)} · "
+                                    f"{result.sell_listings or 0:,} listed"
+                                ).classes("text-grey-8")
                             button = ui.button("Add").props("flat dense")
                             if result.market_hash_name in watched:
                                 button.text = "In watchlist"
@@ -199,60 +167,74 @@ def register() -> None:
                             else:
                                 button.on_click(lambda r=result, b=button: add(r, b))
 
-            async def search() -> None:
+            def current_query() -> SearchQuery | None:
+                """The query from the input and filters, or None (with a hint) if unusable."""
+                raw = (query_input.value or "").strip()
                 try:
-                    query = market_hash_name_from_input(query_input.value or "")
+                    text = market_hash_name_from_input(raw)
                 except ValueError as exc:
                     status.text = str(exc)
-                    return
-                kind = None if kind_select.value == ANY else cast(ItemKind, kind_select.value)
-                if len(query) < 2 and kind is None:
-                    status.text = "Type at least two characters or pick a type."
-                    return
-                search_button.disable()
-                status.text = (
-                    "Searching… (requests to Steam are spaced out, this can take up to a minute)"
-                )
-                results_box.clear()
-                try:
+                    return None
+                if raw.startswith("http"):
                     # A pasted URL names one exact item; filters could only hide it.
-                    if (query_input.value or "").strip().startswith("http"):
-                        request = SearchQuery(query)
-                    else:
-                        request = SearchQuery(
-                            query,
-                            kind=kind,
-                            quality=None
-                            if quality_toggle.value == ANY
-                            else cast(Quality, quality_toggle.value),
-                            exterior=None
-                            if exterior_toggle.value == ANY
-                            else cast(Exterior, exterior_toggle.value),
-                        )
-                    results = await _search(request)
+                    return SearchQuery(text)
+                kind = None if kind_select.value == ANY else cast(ItemKind, kind_select.value)
+                if len(text) < 2 and kind is None:
+                    status.text = ""
+                    results_box.clear()
+                    return None
+                return SearchQuery(
+                    text,
+                    kind=kind,
+                    quality=None
+                    if quality_toggle.value == ANY
+                    else cast(Quality, quality_toggle.value),
+                    exterior=None
+                    if exterior_toggle.value == ANY
+                    else cast(Exterior, exterior_toggle.value),
+                )
+
+            async def find_local() -> None:
+                query = current_query()
+                if query is None:
+                    return
+                results = await search_local(query)
+                await show_results(results)
+                status.text = (
+                    f"{len(results)} match(es) among items seen before. "
+                    "Not what you need? Press Search Steam."
+                    if results
+                    else "Nothing among items seen before. Press Search Steam to ask Steam."
+                )
+
+            async def find_on_steam() -> None:
+                query = current_query()
+                if query is None:
+                    status.text = status.text or "Type at least two characters or pick a type."
+                    return
+                steam_button.disable()
+                status.text = (
+                    "Asking Steam… (requests are spaced out, this can take up to a minute)"
+                )
+                try:
+                    results = await search_steam(query)
                 except SteamBusyError as exc:
                     status.text = (
-                        f"Steam is rate limiting us; try again in about {exc.wait / 60:.0f} min."
+                        f"Steam is rate limiting us; try again in about {exc.wait / 60:.0f} min. "
+                        "Items seen before are still searchable."
                     )
                     return
                 except (SteamError, SteamFormatError, TimeoutError) as exc:
-                    status.text = f"Search failed: {exc}"
+                    status.text = f"Steam search failed: {exc}"
                     return
                 finally:
-                    search_button.enable()
-                if not results:
-                    status.text = "Nothing found. Check the spelling or loosen the filters."
-                    return
-                async with runtime.sessions() as session:
-                    watched = {i.market_hash_name for i in await repo.watchlist_items(session)}
+                    steam_button.enable()
+                await show_results(results)
                 status.text = (
-                    f"Found {len(results)} (Steam shows at most 10; refine the query if needed)."
+                    f"Steam found {len(results)} (at most 10 per search; refine if needed)."
+                    if results
+                    else "Steam found nothing. Check the spelling or loosen the filters."
                 )
-                show_results(results, watched)
-
-            async def requery() -> None:
-                if (query_input.value or "").strip() or kind_select.value != ANY:
-                    await search()
 
             async def kind_changed() -> None:
                 # Wear and StatTrak/Souvenir exist only for skins; reset hidden filters so
@@ -265,11 +247,12 @@ def register() -> None:
                     exterior_toggle.set_value(ANY)
                     if kind != ANY:
                         quality_toggle.set_value(ANY)
-                await requery()
+                await find_local()
 
-            search_button.on_click(search)
+            query_input.on_value_change(find_local)
+            query_input.on("keydown.enter", find_on_steam)
+            steam_button.on_click(find_on_steam)
             kind_select.on_value_change(kind_changed)
-            quality_toggle.on_value_change(requery)
-            exterior_toggle.on_value_change(requery)
-            query_input.on("keydown.enter", search)
+            quality_toggle.on_value_change(find_local)
+            exterior_toggle.on_value_change(find_local)
             ui.timer(60, refresh)

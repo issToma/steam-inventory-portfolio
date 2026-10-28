@@ -147,6 +147,22 @@ class Collector:
         if not items:
             return None
         variants = await self._market.group_page(job.target)
+        async with self._sessions() as session:
+            # Every variant goes to the catalog, so local search knows all wears at once.
+            await repo.upsert_catalog(
+                session,
+                [
+                    repo.CatalogRecord(
+                        market_hash_name=v.market_hash_name,
+                        item_type=v.item_type,
+                        bucket_group_id=job.target,
+                        classid=v.classid,
+                        icon_url=v.icon_url,
+                    )
+                    for v in variants.values()
+                ],
+            )
+            await session.commit()
         currencies = set()
         for item in items:
             variant = variants.get(item.market_hash_name)

@@ -6,6 +6,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     MetaData,
     Numeric,
@@ -108,3 +109,32 @@ class FetchJob(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class CatalogEntry(Base):
+    """Every market item we have come across, for instant local search without Steam.
+
+    Filled from Steam search results and market group pages. Prices are a snapshot from
+    the last search that returned the item and may be missing or stale.
+    """
+
+    __tablename__ = "catalog"
+    __table_args__ = (
+        Index(
+            "ix_catalog_name_trgm",
+            "market_hash_name",
+            postgresql_using="gin",
+            postgresql_ops={"market_hash_name": "gin_trgm_ops"},
+        ),
+    )
+
+    market_hash_name: Mapped[str] = mapped_column(Text, primary_key=True)
+    item_type: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(Text, index=True)
+    bucket_group_id: Mapped[str | None] = mapped_column(Text)
+    classid: Mapped[str | None] = mapped_column(Text)
+    icon_url: Mapped[str | None] = mapped_column(Text)
+    sell_price_usd_cents: Mapped[int | None] = mapped_column(Integer)
+    sell_listings: Mapped[int | None] = mapped_column(Integer)
+    price_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

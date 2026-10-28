@@ -52,8 +52,9 @@ class SearchResult:
     bucket_group_id: str | None
     classid: str | None
     icon_url: str | None
-    sell_listings: int
-    sell_price_usd_cents: int
+    # Unknown for entries from the local catalog that were never in a Steam search result.
+    sell_listings: int | None
+    sell_price_usd_cents: int | None
 
 
 @dataclass(frozen=True)
