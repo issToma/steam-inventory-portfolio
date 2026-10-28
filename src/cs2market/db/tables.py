@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -17,6 +18,7 @@ from sqlalchemy import (
     false,
     func,
     text,
+    true,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -194,3 +196,51 @@ class AppSetting(Base):
 
     key: Mapped[str] = mapped_column(Text, primary_key=True)
     value: Mapped[str] = mapped_column(Text)
+
+
+class AlertRule(Base):
+    """A condition on an item's price that notifies the user when it becomes true.
+
+    `kind` is "above" or "below" a price in USD (`threshold`), or "rise" or "fall" by a
+    percentage (`threshold`, e.g. 10 for 10%) within `window_hours`. A rule fires when its
+    condition starts to hold and is `armed` again once the condition stops holding, so a
+    price that stays above the threshold notifies once rather than on every refresh.
+    """
+
+    __tablename__ = "alert_rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(Text)
+    threshold: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    window_hours: Mapped[int | None] = mapped_column(Integer)
+    enabled: Mapped[bool] = mapped_column(Boolean, server_default=true())
+    armed: Mapped[bool] = mapped_column(Boolean, server_default=true())
+    last_fired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AlertEvent(Base):
+    """A fired alert: shown in the UI's notification feed and sent to Telegram.
+
+    It copies the rule's condition, so the feed still reads right after the rule is changed
+    or deleted. `telegram` is "pending", "sent", "failed" or "off" (Telegram not set up).
+    """
+
+    __tablename__ = "alert_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    rule_id: Mapped[int | None] = mapped_column(
+        ForeignKey("alert_rules.id", ondelete="SET NULL"), index=True
+    )
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(Text)
+    threshold: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    window_hours: Mapped[int | None] = mapped_column(Integer)
+    price_usd: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    change: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    telegram: Mapped[str] = mapped_column(Text, server_default="off")

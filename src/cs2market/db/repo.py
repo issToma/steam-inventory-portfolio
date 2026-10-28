@@ -22,6 +22,8 @@ from cs2market.core.parsers import (
     parse_item_traits,
 )
 from cs2market.db.tables import (
+    AlertEvent,
+    AlertRule,
     AppSetting,
     CatalogEntry,
     FetchJob,
@@ -146,10 +148,23 @@ async def ensure_history_job(session: AsyncSession, item: Item) -> None:
 
 
 def _tracked_condition() -> ColumnElement[bool]:
-    """An item is tracked when it is in the watchlist or in an active portfolio position."""
-    in_watchlist = select(WatchlistEntry.item_id).where(WatchlistEntry.item_id == Item.id)
+    """An item is tracked when it is watched or in an active portfolio position."""
     held = select(Holding.id).where(Holding.item_id == Item.id, Holding.removed_at.is_(None))
-    return or_(in_watchlist.exists(), held.exists())
+    return or_(_watched_condition(), held.exists())
+
+
+def _watched_condition() -> ColumnElement[bool]:
+    """In the watchlist or under an enabled alert: the user wants this price fresh."""
+    in_watchlist = select(WatchlistEntry.item_id).where(WatchlistEntry.item_id == Item.id)
+    alerted = select(AlertRule.id).where(AlertRule.item_id == Item.id, AlertRule.enabled)
+    return or_(in_watchlist.exists(), alerted.exists())
+
+
+async def any_watched(session: AsyncSession, item_ids: list[int]) -> bool:
+    found = await session.scalar(
+        select(Item.id).where(Item.id.in_(item_ids), _watched_condition()).limit(1)
+    )
+    return found is not None
 
 
 async def tracked_items_in_group(
@@ -443,6 +458,10 @@ SETTING_INVENTORY_POSITIONS = "inventory_positions"
 # The games of the connected inventory (JSON list) and the ones the user switched off.
 SETTING_GAMES = "inventory_games"
 SETTING_DISABLED_GAMES = "disabled_games"
+# Where alerts are sent; the token is a secret and never shown back in full.
+SETTING_TELEGRAM_TOKEN = "telegram_token"
+SETTING_TELEGRAM_CHAT = "telegram_chat"
+SETTING_TELEGRAM_LANGUAGE = "telegram_language"
 
 
 async def add_manual_holding(
@@ -857,3 +876,164 @@ async def games_in_use(session: AsyncSession) -> list[int]:
         .order_by(func.count().desc())
     )
     return [appid for appid, _ in result]
+
+
+# Alerts (docs/SPEC.md, F11).
+TELEGRAM_OFF = "off"
+TELEGRAM_PENDING = "pending"
+TELEGRAM_SENT = "sent"
+TELEGRAM_FAILED = "failed"
+
+
+async def add_alert(
+    session: AsyncSession,
+    market_hash_name: str,
+    kind: str,
+    threshold: Decimal,
+    window_hours: int | None = None,
+    *,
+    appid: int = CS2_APPID,
+    found: SearchResult | None = None,
+    armed: bool = True,
+) -> AlertRule:
+    """Add a rule; its item's prices are collected from now on, like a watched item's.
+
+    A rule whose condition already holds is added disarmed (`armed=False`): it fires the
+    next time the condition starts to hold rather than right away.
+    """
+    item = await _track(session, market_hash_name, found, appid)
+    rule = AlertRule(
+        item_id=item.id, kind=kind, threshold=threshold, window_hours=window_hours, armed=armed
+    )
+    session.add(rule)
+    await session.flush()
+    return rule
+
+
+async def get_alert(session: AsyncSession, rule_id: int) -> AlertRule | None:
+    return await session.get(AlertRule, rule_id)
+
+
+async def set_alert_enabled(session: AsyncSession, rule_id: int, enabled: bool) -> None:
+    rule = await get_alert(session, rule_id)
+    if rule is None:
+        return
+    rule.enabled = enabled
+    await session.flush()
+    item = await get_item(session, rule.item_id)
+    if item is None:
+        return
+    if enabled:
+        await _track(session, item.market_hash_name, None, item.appid)
+    elif not await is_tracked(session, item.id):
+        await _drop_item_jobs(session, item)
+
+
+async def delete_alert(session: AsyncSession, rule_id: int) -> None:
+    rule = await get_alert(session, rule_id)
+    if rule is None:
+        return
+    item = await get_item(session, rule.item_id)
+    await session.delete(rule)
+    await session.flush()
+    if item is not None and not await is_tracked(session, item.id):
+        await _drop_item_jobs(session, item)
+
+
+async def alert_rules(
+    session: AsyncSession, item_id: int | None = None
+) -> list[tuple[AlertRule, Item]]:
+    query = select(AlertRule, Item).join(Item, AlertRule.item_id == Item.id)
+    if item_id is not None:
+        query = query.where(AlertRule.item_id == item_id)
+    result = await session.execute(query.order_by(Item.market_hash_name, AlertRule.id))
+    return [(rule, item) for rule, item in result]
+
+
+async def enabled_alerts_for(session: AsyncSession, item_ids: list[int]) -> list[AlertRule]:
+    result = await session.scalars(
+        select(AlertRule).where(AlertRule.item_id.in_(item_ids), AlertRule.enabled)
+    )
+    return list(result)
+
+
+async def add_alert_event(
+    session: AsyncSession,
+    rule: AlertRule,
+    price_usd: float,
+    change: float | None,
+    *,
+    telegram: str,
+) -> AlertEvent:
+    event = AlertEvent(
+        rule_id=rule.id,
+        item_id=rule.item_id,
+        kind=rule.kind,
+        threshold=rule.threshold,
+        window_hours=rule.window_hours,
+        price_usd=Decimal(str(round(price_usd, 4))),
+        change=change,
+        telegram=telegram,
+    )
+    session.add(event)
+    await session.flush()
+    return event
+
+
+async def alert_events(session: AsyncSession, limit: int = 100) -> list[tuple[AlertEvent, Item]]:
+    result = await session.execute(
+        select(AlertEvent, Item)
+        .join(Item, AlertEvent.item_id == Item.id)
+        .order_by(AlertEvent.created_at.desc(), AlertEvent.id.desc())
+        .limit(limit)
+    )
+    return [(event, item) for event, item in result]
+
+
+async def unread_alert_count(session: AsyncSession) -> int:
+    count = await session.scalar(
+        select(func.count()).select_from(AlertEvent).where(AlertEvent.read_at.is_(None))
+    )
+    return count or 0
+
+
+async def mark_alerts_read(session: AsyncSession) -> None:
+    await session.execute(
+        update(AlertEvent).where(AlertEvent.read_at.is_(None)).values(read_at=func.now())
+    )
+
+
+async def pending_telegram_events(
+    session: AsyncSession, limit: int = 20
+) -> list[tuple[AlertEvent, Item]]:
+    result = await session.execute(
+        select(AlertEvent, Item)
+        .join(Item, AlertEvent.item_id == Item.id)
+        .where(AlertEvent.telegram == TELEGRAM_PENDING)
+        .order_by(AlertEvent.id)
+        .limit(limit)
+    )
+    return [(event, item) for event, item in result]
+
+
+async def set_telegram_status(session: AsyncSession, event_id: int, status: str) -> None:
+    await session.execute(
+        update(AlertEvent).where(AlertEvent.id == event_id).values(telegram=status)
+    )
+
+
+@dataclass(frozen=True)
+class TelegramSettings:
+    token: str
+    chat_id: str
+    language: str
+
+
+async def telegram_settings(session: AsyncSession) -> TelegramSettings | None:
+    """Where to send alerts, or None while Telegram is not fully set up."""
+    token = await get_setting(session, SETTING_TELEGRAM_TOKEN)
+    chat_id = await get_setting(session, SETTING_TELEGRAM_CHAT)
+    if not token or not chat_id:
+        return None
+    language = await get_setting(session, SETTING_TELEGRAM_LANGUAGE) or "en"
+    return TelegramSettings(token=token, chat_id=chat_id, language=language)

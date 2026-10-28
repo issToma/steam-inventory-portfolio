@@ -1,7 +1,9 @@
 from nicegui import ui
 
+from cs2market import alerts
+from cs2market.core.telegram import TelegramError
 from cs2market.db import repo
-from cs2market.i18n import LANGUAGES, current_language, tr, tr_n
+from cs2market.i18n import LANGUAGES, current_language, tr, tr_in, tr_n
 from cs2market.runtime import runtime
 from cs2market.settings import get_settings
 from cs2market.ui.account import AccountCard
@@ -26,6 +28,9 @@ def register() -> None:
 
             ui.label(tr("Games")).classes("text-h6")
             await _games_card()
+
+            ui.label(tr("Telegram alerts")).classes("text-h6").props("id=telegram")
+            await _telegram_card()
 
             ui.label(tr("Appearance")).classes("text-h6")
             with ui.card().classes("w-full"), ui.row().classes("items-center gap-6"):
@@ -109,3 +114,132 @@ async def _set_game(appid: int, enabled: bool) -> None:
             await repo.run_job_now(session, repo.JOB_INVENTORY, account.steam_id64)
         await session.commit()
     ui.notify(tr("Saved; the inventory is synced again now."))
+
+
+def _masked(token: str) -> str:
+    """Enough of a bot token to recognise it, without showing the secret part."""
+    bot_id, _, secret = token.partition(":")
+    return f"{bot_id}:{secret[:3]}…" if secret else "…"
+
+
+async def _telegram_card() -> None:
+    card = ui.card().classes("w-full")
+
+    async def render() -> None:
+        async with runtime.sessions() as session:
+            token = await repo.get_setting(session, repo.SETTING_TELEGRAM_TOKEN)
+            chat = await repo.get_setting(session, repo.SETTING_TELEGRAM_CHAT)
+            language = await repo.get_setting(session, repo.SETTING_TELEGRAM_LANGUAGE)
+        card.clear()
+        with card:
+            ui.label(tr("Alerts always show up in InvInv. To also get them in Telegram:")).classes(
+                "text-muted"
+            )
+            with ui.element("ol").classes("list-decimal pl-6 text-muted"):
+                for step in (
+                    tr("In Telegram, message @BotFather, send /newbot and copy the token."),
+                    tr("Paste the token below and save it."),
+                    tr("Send any message to your new bot, then press Find my chat."),
+                ):
+                    with ui.element("li"):
+                        ui.label(step)
+            with ui.row().classes("w-full items-end gap-3"):
+                token_input = (
+                    ui.input(
+                        tr("Bot token"),
+                        placeholder=_masked(token) if token else "123456789:AA…",
+                        password=True,
+                    )
+                    .props("autocomplete=off")
+                    .classes("w-96 max-w-full")
+                )
+                ui.button(tr("Save token"), on_click=lambda: save_token(token_input.value))
+            if not token:
+                return
+            with ui.row().classes("w-full items-center gap-3"):
+                ui.button(tr("Find my chat"), icon="search", on_click=find_chat).props("outline")
+                ui.label(tr("Chat: {chat}", chat=chat) if chat else tr("No chat yet")).classes(
+                    "text-muted"
+                )
+            with ui.row().classes("w-full items-center gap-3"):
+                ui.select(
+                    dict(LANGUAGES),
+                    label=tr("Message language"),
+                    value=alerts.as_language(language or "en"),
+                    on_change=lambda e: save_language(e.value),
+                ).classes("w-48")
+                ui.button(tr("Send a test message"), icon="send", on_click=send_test).props(
+                    "outline"
+                ).set_enabled(bool(chat))
+                ui.button(tr("Disconnect"), on_click=disconnect).props("flat color=negative")
+
+    async def save_token(value: str | None) -> None:
+        token = (value or "").strip()
+        if not token:
+            ui.notify(tr("Paste the token from @BotFather first."), type="warning")
+            return
+        try:
+            name = await runtime.telegram.username(token)
+        except TelegramError as exc:
+            ui.notify(tr("Telegram did not accept the token: {error}", error=exc), type="negative")
+            return
+        async with runtime.sessions() as session:
+            await repo.set_setting(session, repo.SETTING_TELEGRAM_TOKEN, token)
+            await repo.set_setting(session, repo.SETTING_TELEGRAM_CHAT, None)
+            await session.commit()
+        ui.notify(tr("Connected to @{bot}. Now send it any message.", bot=name), multi_line=True)
+        await render()
+
+    async def find_chat() -> None:
+        async with runtime.sessions() as session:
+            token = await repo.get_setting(session, repo.SETTING_TELEGRAM_TOKEN)
+        if not token:
+            return
+        try:
+            chat = await runtime.telegram.latest_chat(token)
+        except TelegramError as exc:
+            ui.notify(str(exc), type="negative")
+            return
+        if chat is None:
+            ui.notify(
+                tr("No messages to the bot yet. Send it any message and try again."),
+                type="warning",
+            )
+            return
+        async with runtime.sessions() as session:
+            await repo.set_setting(session, repo.SETTING_TELEGRAM_CHAT, str(chat.id))
+            await session.commit()
+        ui.notify(tr("Alerts will go to {chat}", chat=chat.title or chat.id))
+        await render()
+
+    async def save_language(language: str) -> None:
+        async with runtime.sessions() as session:
+            await repo.set_setting(session, repo.SETTING_TELEGRAM_LANGUAGE, language)
+            await session.commit()
+
+    async def send_test() -> None:
+        async with runtime.sessions() as session:
+            telegram = await repo.telegram_settings(session)
+        if telegram is None:
+            return
+        language = alerts.as_language(telegram.language)
+        try:
+            await runtime.telegram.send(
+                telegram.token,
+                telegram.chat_id,
+                tr_in(language, "InvInv is connected: alerts will arrive here."),
+            )
+        except TelegramError as exc:
+            ui.notify(str(exc), type="negative")
+            return
+        ui.notify(tr("Sent; check Telegram."))
+
+    async def disconnect() -> None:
+        async with runtime.sessions() as session:
+            await repo.set_setting(session, repo.SETTING_TELEGRAM_TOKEN, None)
+            await repo.set_setting(session, repo.SETTING_TELEGRAM_CHAT, None)
+            await session.commit()
+        ui.notify(tr("Telegram disconnected"))
+        await render()
+
+    await render()

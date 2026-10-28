@@ -6,7 +6,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
-from cs2market import scheduling
+from cs2market import alerts, scheduling
 from cs2market.core.currency import USD
 from cs2market.core.http import SteamError, SteamRateLimitedError
 from cs2market.core.parsers import (
@@ -44,16 +44,19 @@ class Collector:
         market: SteamMarket,
         settings: Settings,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        notifier: alerts.Notifier | None = None,
     ) -> None:
         self._sessions = sessions
         self._market = market
         self._settings = settings
         self._now = now
+        self._notifier = notifier
 
     async def run_forever(self) -> None:
         log.info("collector started")
         while True:
             try:
+                await self._notify()
                 if not await self.run_once():
                     await asyncio.sleep(await self._idle_seconds())
             except asyncio.CancelledError:
@@ -70,6 +73,14 @@ class Collector:
             return False
         await self._run(job)
         return True
+
+    async def _notify(self) -> None:
+        if self._notifier is None:
+            return
+        try:
+            await self._notifier.deliver(self._now())
+        except Exception:
+            log.exception("alert delivery failed")
 
     async def _idle_seconds(self) -> float:
         async with self._sessions() as session:
@@ -157,6 +168,7 @@ class Collector:
                 await repo.fill_from_catalog(session, stored)
             if history.currency != USD:
                 await repo.ensure_job(session, repo.JOB_FX, str(history.currency))
+            await alerts.check_items(session, [item.id], self._now())
             await session.commit()
         log.info("stored %d points for %r", len(history.points), job.target)
         return await self._next_refresh([(item.id, history)])
@@ -179,6 +191,7 @@ class Collector:
                     await repo.fill_from_catalog(session, stored)
                 if single.currency != USD:
                     await repo.ensure_job(session, repo.JOB_FX, str(single.currency))
+                await alerts.check_items(session, [item.id], self._now())
                 await session.commit()
             next_run = await self._next_refresh([(item.id, single)])
             log.info(
@@ -227,6 +240,7 @@ class Collector:
         async with self._sessions() as session:
             for currency in currencies - {USD}:
                 await repo.ensure_job(session, repo.JOB_FX, str(currency))
+            await alerts.check_items(session, [item_id for item_id, _ in fetched], self._now())
             await session.commit()
         next_run = await self._next_refresh(fetched)
         log.info(
@@ -242,7 +256,7 @@ class Collector:
         async with self._sessions() as session:
             ids = [item_id for item_id, _ in fetched]
             quantities = await repo.held_quantities(session, ids)
-            watched = any([await repo.in_watchlist(session, item_id) for item_id in ids])
+            watched = await repo.any_watched(session, ids)
             fx = await repo.latest_fx(session)
         now = self._now()
         importance = scheduling.Importance(

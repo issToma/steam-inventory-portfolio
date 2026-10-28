@@ -22,6 +22,7 @@ from cs2market.db import repo
 from cs2market.i18n import tr
 from cs2market.portfolio import fee_rate
 from cs2market.runtime import runtime
+from cs2market.ui.alerts_page import open_item_alerts
 from cs2market.ui.common import fmt_pct, fmt_usd, icon_url, pct_color, rarity_color
 from cs2market.ui.games import game_names, name_of
 from cs2market.ui.layout import SEGMENTED_PROPS, page_frame, themed_chart
@@ -210,6 +211,11 @@ def register() -> None:
                 ui.button(tr("Add to portfolio"), icon="add", on_click=add_to_portfolio).props(
                     "outline"
                 )
+                ui.button(
+                    tr("Alerts"),
+                    icon="add_alert",
+                    on_click=lambda: open_item_alerts(item.market_hash_name, item.appid),
+                ).props("outline")
 
             try:
                 raw_frame = to_frame(points, fx, drop_outliers=False)

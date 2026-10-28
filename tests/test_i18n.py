@@ -20,9 +20,12 @@ def literal_calls() -> tuple[set[str], set[tuple[str, str]]]:
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
                 continue
             args = [a.value if isinstance(a, ast.Constant) else None for a in node.args]
-            if node.func.id == "tr" and args and isinstance(args[0], str):
+            # tr_in() and tr_n_in() take the language first.
+            if node.func.id in ("tr_in", "tr_n_in"):
+                args = args[1:]
+            if node.func.id in ("tr", "tr_in") and args and isinstance(args[0], str):
                 singles.add(args[0])
-            elif node.func.id == "tr_n" and len(args) >= 3:
+            elif node.func.id in ("tr_n", "tr_n_in") and len(args) >= 3:
                 one, many = args[1], args[2]
                 if isinstance(one, str) and isinstance(many, str):
                     plurals.add((one, many))

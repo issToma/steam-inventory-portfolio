@@ -28,13 +28,22 @@ def set_language(language: Language) -> None:
 
 def tr(text: str, /, **values: object) -> str:
     """Translate an English UI string and fill in its {placeholders}."""
-    translated = RU.get(text, text) if current_language() == "ru" else text
+    return tr_in(current_language(), text, **values)
+
+
+def tr_in(language: Language, text: str, /, **values: object) -> str:
+    """tr() for a given language, for text built outside a page (say, a Telegram message)."""
+    translated = RU.get(text, text) if language == "ru" else text
     return translated.format(**values) if values else translated
 
 
 def tr_n(count: int, one: str, many: str, /, **values: object) -> str:
     """Translate a phrase that depends on a count, given as "{n} item" / "{n} items"."""
-    if current_language() == "ru" and (one, many) in RU_PLURAL:
+    return tr_n_in(current_language(), count, one, many, **values)
+
+
+def tr_n_in(language: Language, count: int, one: str, many: str, /, **values: object) -> str:
+    if language == "ru" and (one, many) in RU_PLURAL:
         forms = RU_PLURAL[(one, many)]
         last_two, last = count % 100, count % 10
         if last == 1 and last_two != 11:
@@ -329,4 +338,75 @@ RU: dict[str, str] = {
         "и полная история появится в течение минуты."
     ),
     "Add to watchlist": "Добавить в watchlist",
+    # Alerts
+    "24 hours": "24 часа",
+    "7 days": "7 дней",
+    "Add alert": "Добавить алерт",
+    "Added. This is already true now; you will be notified the next time it is.": (
+        "Добавлено. Условие уже выполняется сейчас; уведомление придёт, когда оно выполнится "
+        "в следующий раз."
+    ),
+    "Alert added": "Алерт добавлен",
+    "Alerts always show up in InvInv. To also get them in Telegram:": (
+        "Алерты всегда видны в InvInv. Чтобы получать их и в Telegram:"
+    ),
+    "In Telegram, message @BotFather, send /newbot and copy the token.": (
+        "Напишите в Telegram @BotFather, отправьте /newbot и скопируйте токен."
+    ),
+    "Paste the token below and save it.": "Вставьте токен ниже и сохраните.",
+    "Send any message to your new bot, then press Find my chat.": (
+        "Отправьте любое сообщение своему новому боту и нажмите «Найти мой чат»."
+    ),
+    "Alerts for {name}": "Алерты: {name}",
+    "Alerts show up here and under the bell.": "Алерты появляются здесь и под колокольчиком.",
+    "Alerts will go to {chat}": "Алерты будут приходить в {chat}",
+    "Bot token": "Токен бота",
+    "Chat: {chat}": "Чат: {chat}",
+    "Choose": "Выбрать",
+    "Connected to @{bot}. Now send it any message.": (
+        "Подключено к @{bot}. Теперь отправьте ему любое сообщение."
+    ),
+    "Enter a value above zero.": "Введите значение больше нуля.",
+    "Falls by {pct}% within {window}": "Падение на {pct}% за {window}",
+    "Find my chat": "Найти мой чат",
+    "Get notified when a price reaches a level or moves fast.": (
+        "Уведомления, когда цена достигает уровня или резко меняется."
+    ),
+    "InvInv is connected: alerts will arrive here.": "InvInv подключён: алерты будут приходить сюда.",
+    "Message language": "Язык сообщений",
+    "New alert": "Новый алерт",
+    "No alerts for this item yet.": "Для этого предмета алертов пока нет.",
+    "No alerts yet. Add one here or from an item's page.": (
+        "Алертов пока нет. Добавьте здесь или на странице предмета."
+    ),
+    "No chat yet": "Чат ещё не найден",
+    "No messages to the bot yet. Send it any message and try again.": (
+        "Боту ещё никто не писал. Отправьте ему любое сообщение и попробуйте снова."
+    ),
+    "Nothing has fired yet.": "Пока ничего не срабатывало.",
+    "Notifications": "Уведомления",
+    "Notify when": "Сообщить, когда",
+    "Paste the token from @BotFather first.": "Сначала вставьте токен от @BotFather.",
+    "Price at or above {price}": "Цена {price} и выше",
+    "Price at or below {price}": "Цена {price} и ниже",
+    "Price falls by": "Цена упадёт на",
+    "Price falls to": "Цена упадёт до",
+    "Price rises by": "Цена вырастет на",
+    "Price rises to": "Цена вырастет до",
+    "Rises by {pct}% within {window}": "Рост на {pct}% за {window}",
+    "Rules": "Правила",
+    "Save token": "Сохранить токен",
+    "Send a test message": "Отправить тестовое сообщение",
+    "Sent; check Telegram.": "Отправлено, проверьте Telegram.",
+    "Set up Telegram to get them on your phone.": "Подключите Telegram, чтобы получать их на телефон.",
+    "Telegram alerts": "Алерты в Telegram",
+    "Telegram did not accept the token: {error}": "Telegram не принял токен: {error}",
+    "Telegram disconnected": "Telegram отключён",
+    "fired {ago}": "сработал {ago}",
+    "in 24 hours": "за 24 часа",
+    "in 7 days": "за 7 дней",
+    "now {price}": "сейчас {price}",
+    "now {price}, {change} in {window}": "сейчас {price}, {change} за {window}",
+    "off": "выключен",
+    "waiting": "ждёт",
 }

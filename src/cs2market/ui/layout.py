@@ -61,6 +61,7 @@ body.body--dark { --q-dark-page: var(--bg); --q-dark: var(--surface); }
 .segmented .q-btn.bg-primary { color: #fff; }
 a.plain-link { color: inherit; text-decoration: none; }
 a.plain-link:hover { text-decoration: underline; }
+.unread-alert { border-left: 3px solid var(--q-primary); }
 """
 
 
@@ -75,7 +76,7 @@ class NavItem:
 NAV: list[NavItem] = [
     NavItem("portfolio", "Portfolio", "account_balance_wallet", "/"),
     NavItem("watchlist", "Watchlist", "visibility", "/watchlist"),
-    NavItem("alerts", "Alerts", "notifications", None),
+    NavItem("alerts", "Alerts", "notifications", "/alerts"),
     NavItem("market", "Market", "query_stats", None),
 ]
 NAV_BOTTOM: list[NavItem] = [NavItem("settings", "Settings", "settings", "/settings")]
@@ -167,6 +168,7 @@ def page_frame(active: str) -> Iterator[None]:
         _global_search()
         ui.space()
         _collector_indicator()
+        _alerts_bell()
         _language_menu()
         _theme_menu(theme)
         _account_chip()
@@ -264,6 +266,24 @@ def _collector_indicator() -> None:
         hint.text = text or tr("Prices are up to date")
 
     ui.timer(15, update)
+    ui.timer(0.1, update, once=True)
+
+
+def _alerts_bell() -> None:
+    with ui.button(icon="notifications", on_click=lambda: ui.navigate.to("/alerts")).props(
+        "flat round dense color=grey"
+    ):
+        badge = ui.badge(color="red").props("floating rounded")
+        ui.tooltip(tr("Alerts"))
+
+    async def update() -> None:
+        async with runtime.sessions() as session:
+            unread = await repo.unread_alert_count(session)
+        badge.text = str(unread) if unread < 100 else "99+"
+        badge.set_visibility(unread > 0)
+
+    badge.set_visibility(False)
+    ui.timer(30, update)
     ui.timer(0.1, update, once=True)
 
 

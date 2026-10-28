@@ -8,9 +8,11 @@ from dataclasses import dataclass
 
 import aiohttp
 
+from cs2market.alerts import Notifier
 from cs2market.collector import Collector
 from cs2market.core.http import SteamClient
 from cs2market.core.steam import SteamMarket
+from cs2market.core.telegram import TelegramBot
 from cs2market.db import repo
 from cs2market.db.session import SessionMaker, make_engine, make_sessionmaker
 from cs2market.settings import get_settings
@@ -32,6 +34,7 @@ class Runtime:
         self._collector: asyncio.Task[None] | None = None
         self._market: SteamMarket | None = None
         self._client: SteamClient | None = None
+        self._telegram: TelegramBot | None = None
         self._collector_enabled = False
 
     @property
@@ -47,6 +50,12 @@ class Runtime:
             raise RuntimeError("runtime is not started")
         return self._market
 
+    @property
+    def telegram(self) -> TelegramBot:
+        if self._telegram is None:
+            raise RuntimeError("runtime is not started")
+        return self._telegram
+
     async def start(self) -> None:
         settings = get_settings()
         self._engine = make_engine(settings.database_url)
@@ -58,9 +67,11 @@ class Runtime:
         client = SteamClient(self._http, interval=settings.request_interval_seconds)
         self._client = client
         self._market = SteamMarket(client)
+        self._telegram = TelegramBot(self._http)
         self._collector_enabled = settings.collector_enabled
         if settings.collector_enabled:
-            collector = Collector(self._sessions, self._market, settings)
+            notifier = Notifier(self._sessions, self._telegram)
+            collector = Collector(self._sessions, self._market, settings, notifier=notifier)
             self._collector = asyncio.create_task(collector.run_forever())
         else:
             log.info("collector disabled by settings")
