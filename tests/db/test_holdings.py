@@ -1,0 +1,96 @@
+from decimal import Decimal
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from cs2market.core.parsers import InventoryItem
+from cs2market.db import repo
+from cs2market.db.tables import FetchJob, Holding
+
+
+def inv(name: str, *, amount: int = 1, marketable: bool = True, group: str = "G1") -> InventoryItem:
+    return InventoryItem(name, "Base Grade Container", group, "1", None, marketable, amount)
+
+
+async def active(session: AsyncSession) -> dict[str, tuple[str, int]]:
+    return {
+        item.market_hash_name: (holding.source, holding.quantity)
+        for holding, item in await repo.active_holdings(session)
+    }
+
+
+async def jobs(session: AsyncSession) -> set[tuple[str, str]]:
+    return {(j.kind, j.target) for j in await session.scalars(select(FetchJob))}
+
+
+async def test_inventory_sync_aggregates_and_skips_unsellable(session: AsyncSession) -> None:
+    count = await repo.sync_inventory(
+        session,
+        [inv("Kilowatt Case"), inv("Kilowatt Case"), inv("Veteran Coin", marketable=False)],
+    )
+
+    assert count == 1
+    assert await active(session) == {"Kilowatt Case": ("inventory", 2)}
+    assert ("group", "G1") in await jobs(session)
+
+
+async def test_item_leaving_and_returning_keeps_purchase_price(session: AsyncSession) -> None:
+    await repo.sync_inventory(session, [inv("Kilowatt Case")])
+    ((holding, _),) = await repo.active_holdings(session)
+    await repo.update_holding(session, holding.id, buy_price_usd=Decimal("1.50"))
+
+    await repo.sync_inventory(session, [])
+    assert await active(session) == {}
+
+    await repo.sync_inventory(session, [inv("Kilowatt Case", amount=3)])
+    ((holding, _),) = await repo.active_holdings(session)
+    assert holding.quantity == 3
+    assert holding.buy_price_usd == Decimal("1.50")
+
+
+async def test_sync_leaves_manual_positions_alone(session: AsyncSession) -> None:
+    await repo.add_manual_holding(session, "Kilowatt Case", quantity=50, location="Storage #1")
+    await repo.sync_inventory(session, [inv("Kilowatt Case")])
+
+    holdings = list(await session.scalars(select(Holding).order_by(Holding.source)))
+    assert [(h.source, h.quantity, h.location) for h in holdings] == [
+        ("inventory", 1, None),
+        ("manual", 50, "Storage #1"),
+    ]
+
+
+async def test_inventory_quantity_is_not_editable(session: AsyncSession) -> None:
+    await repo.sync_inventory(session, [inv("Kilowatt Case")])
+    ((holding, _),) = await repo.active_holdings(session)
+
+    await repo.update_holding(session, holding.id, quantity=99, location="nope")
+
+    assert (holding.quantity, holding.location) == (1, None)
+
+
+async def test_deleting_last_position_stops_collection(session: AsyncSession) -> None:
+    holding = await repo.add_manual_holding(session, "Some Sticker", quantity=1)
+    assert ("history", "Some Sticker") in await jobs(session)
+
+    await repo.delete_manual_holding(session, holding.id)
+
+    assert await active(session) == {}
+    assert ("history", "Some Sticker") not in await jobs(session)
+
+
+async def test_watchlist_removal_keeps_collecting_held_items(session: AsyncSession) -> None:
+    item = await repo.add_to_watchlist(session, "Some Sticker")
+    await repo.add_manual_holding(session, "Some Sticker", quantity=1)
+
+    await repo.remove_from_watchlist(session, item.id)
+
+    assert ("history", "Some Sticker") in await jobs(session)
+
+
+async def test_settings(session: AsyncSession) -> None:
+    assert await repo.get_setting(session, repo.SETTING_STEAM_ID) is None
+    await repo.set_setting(session, repo.SETTING_STEAM_ID, "76561198000000042")
+    await repo.set_setting(session, repo.SETTING_STEAM_ID, "76561198000000000")
+    assert await repo.get_setting(session, repo.SETTING_STEAM_ID) == "76561198000000000"
+    await repo.set_setting(session, repo.SETTING_STEAM_ID, None)
+    assert await repo.get_setting(session, repo.SETTING_STEAM_ID) is None

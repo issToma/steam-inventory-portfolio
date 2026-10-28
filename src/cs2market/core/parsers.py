@@ -273,3 +273,94 @@ def market_hash_name_from_input(text: str) -> str:
     if len(tail) == 1 and re.fullmatch(r"G[0-9A-F]+", name):
         raise ValueError("this URL points to an item group; open a specific variant instead")
     return name
+
+
+@dataclass(frozen=True)
+class InventoryItem:
+    market_hash_name: str
+    item_type: str
+    bucket_group_id: str | None
+    classid: str
+    icon_url: str | None
+    marketable: bool
+    amount: int
+
+
+@dataclass(frozen=True)
+class InventoryPage:
+    items: list[InventoryItem]
+    total: int
+    # Pass as start_assetid to get the next page; None on the last page.
+    next_start: str | None
+
+
+def parse_inventory(payload: Any) -> InventoryPage:
+    """Parse /inventory/<steamid64>/730/2: one entry per asset, joined with its description."""
+    source = "inventory"
+    if not isinstance(payload, dict) or payload.get("success") != 1:
+        raise SteamFormatError(f"{source}: success is not 1")
+    total = _require(payload, "total_inventory_count", int, source)
+    # An empty inventory comes without "assets" and "descriptions".
+    assets = payload.get("assets", [])
+    descriptions = {
+        (_require(d, "classid", str, source), _require(d, "instanceid", str, source)): d
+        for d in payload.get("descriptions", [])
+    }
+    items = []
+    for asset in assets:
+        key = (_require(asset, "classid", str, source), _require(asset, "instanceid", str, source))
+        description = descriptions.get(key)
+        if description is None:
+            raise SteamFormatError(f"{source}: no description for asset class {key}")
+        items.append(
+            InventoryItem(
+                market_hash_name=_require(description, "market_hash_name", str, source),
+                item_type=_require(description, "type", str, source),
+                bucket_group_id=description.get("market_bucket_group_id"),
+                classid=key[0],
+                icon_url=description.get("icon_url"),
+                marketable=bool(description.get("marketable")),
+                amount=int(_require(asset, "amount", str, source)),
+            )
+        )
+    more = payload.get("more_items") == 1
+    next_start = payload.get("last_assetid") if more else None
+    if more and not isinstance(next_start, str):
+        raise SteamFormatError(f"{source}: more_items without last_assetid")
+    return InventoryPage(items=items, total=total, next_start=next_start)
+
+
+@dataclass(frozen=True)
+class ProfileRef:
+    """A Steam profile given as a SteamID64 or as a custom URL name that needs resolving."""
+
+    steam_id64: str | None = None
+    vanity: str | None = None
+
+
+_STEAM_ID64 = re.compile(r"7656119\d{10}")
+
+
+def parse_profile_input(text: str) -> ProfileRef:
+    """Accept a SteamID64, a /profiles/<id> URL or a /id/<name> custom URL."""
+    text = text.strip()
+    if _STEAM_ID64.fullmatch(text):
+        return ProfileRef(steam_id64=text)
+    parts = [p for p in urlparse(text if "://" in text else f"https://{text}").path.split("/") if p]
+    for marker, field in (("profiles", "steam_id64"), ("id", "vanity")):
+        if marker in parts and parts.index(marker) + 1 < len(parts):
+            value = parts[parts.index(marker) + 1]
+            if field == "steam_id64":
+                if not _STEAM_ID64.fullmatch(value):
+                    break
+                return ProfileRef(steam_id64=value)
+            return ProfileRef(vanity=value)
+    raise ValueError("expected a SteamID64 or a steamcommunity.com profile link")
+
+
+def parse_profile_xml(xml: str) -> str:
+    """Extract the SteamID64 from /id/<name>/?xml=1."""
+    match = re.search(r"<steamID64>(\d+)</steamID64>", xml)
+    if match is None:
+        raise SteamFormatError("profile xml: no steamID64 (is the custom URL correct?)")
+    return match.group(1)

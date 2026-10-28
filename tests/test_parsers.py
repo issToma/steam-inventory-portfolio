@@ -7,12 +7,16 @@ from typing import Any
 import pytest
 
 from cs2market.core.parsers import (
+    ProfileRef,
     SteamFormatError,
     market_hash_name_from_input,
     parse_group_page,
+    parse_inventory,
     parse_item_traits,
     parse_price_history,
     parse_price_overview,
+    parse_profile_input,
+    parse_profile_xml,
     parse_search_results,
 )
 
@@ -170,3 +174,67 @@ def test_group_page() -> None:
 def test_group_page_rejects_unexpected_shape(html: str) -> None:
     with pytest.raises(SteamFormatError):
         parse_group_page(html, FETCHED_AT)
+
+
+def test_inventory(load_fixture: Callable[[str], Any]) -> None:
+    page = parse_inventory(load_fixture("inventory.json"))
+
+    assert page.total == 3
+    assert page.next_start is None
+    by_name = {i.market_hash_name: i for i in page.items}
+    assert set(by_name) == {
+        "G3SG1 | Polar Camo (Minimal Wear)",
+        "Kilowatt Case",
+        "5 Year Veteran Coin",
+    }
+    assert by_name["Kilowatt Case"].bucket_group_id == "G18A8263004"
+    assert by_name["Kilowatt Case"].marketable
+    assert not by_name["5 Year Veteran Coin"].marketable
+    assert all(i.amount == 1 for i in page.items)
+
+
+def test_empty_and_paginated_inventory() -> None:
+    assert parse_inventory({"success": 1, "total_inventory_count": 0}).items == []
+    page = parse_inventory(
+        {
+            "success": 1,
+            "total_inventory_count": 2500,
+            "assets": [],
+            "descriptions": [],
+            "more_items": 1,
+            "last_assetid": "123",
+        }
+    )
+    assert page.next_start == "123"
+
+
+def test_private_inventory_body_is_rejected() -> None:
+    with pytest.raises(SteamFormatError):
+        parse_inventory(None)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("76561198000000042", ProfileRef(steam_id64="76561198000000042")),
+        (
+            "https://steamcommunity.com/profiles/76561198000000042/inventory/#730",
+            ProfileRef(steam_id64="76561198000000042"),
+        ),
+        ("steamcommunity.com/id/someone/", ProfileRef(vanity="someone")),
+    ],
+)
+def test_profile_input(text: str, expected: ProfileRef) -> None:
+    assert parse_profile_input(text) == expected
+
+
+@pytest.mark.parametrize("text", ["", "hello", "https://steamcommunity.com/profiles/123/"])
+def test_profile_input_rejects_garbage(text: str) -> None:
+    with pytest.raises(ValueError):
+        parse_profile_input(text)
+
+
+def test_profile_xml() -> None:
+    xml = "<profile><steamID64>76561198000000042</steamID64><steamID>x</steamID></profile>"
+
+    assert parse_profile_xml(xml) == "76561198000000042"

@@ -14,6 +14,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -138,3 +139,42 @@ class CatalogEntry(Base):
     sell_listings: Mapped[int | None] = mapped_column(Integer)
     price_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Holding(Base):
+    """A position in the user's portfolio.
+
+    Inventory positions (one per item) are kept in sync with the Steam inventory; when an
+    item leaves the inventory the row is marked removed instead of deleted, so a purchase
+    price the user entered survives if the item comes back. Manual positions (for example
+    storage unit contents, which the inventory does not show) are never touched by the sync.
+    """
+
+    __tablename__ = "holdings"
+    __table_args__ = (
+        Index(
+            "uq_holdings_inventory_item",
+            "item_id",
+            unique=True,
+            postgresql_where=text("source = 'inventory'"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
+    source: Mapped[str] = mapped_column(Text)
+    location: Mapped[str | None] = mapped_column(Text)
+    quantity: Mapped[int] = mapped_column(Integer)
+    buy_price_usd: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    bought_at: Mapped[date | None] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AppSetting(Base):
+    """Settings changed from the UI, such as the SteamID whose inventory is imported."""
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[str] = mapped_column(Text)

@@ -6,11 +6,12 @@ from decimal import Decimal
 from itertools import batched
 from typing import Any, cast
 
-from sqlalchemy import and_, case, delete, func, or_, select, update
+from sqlalchemy import ColumnElement, and_, case, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cs2market.core.parsers import (
+    InventoryItem,
     ItemTraits,
     PriceHistory,
     Resolution,
@@ -18,9 +19,11 @@ from cs2market.core.parsers import (
     parse_item_traits,
 )
 from cs2market.db.tables import (
+    AppSetting,
     CatalogEntry,
     FetchJob,
     FxRate,
+    Holding,
     Item,
     PricePoint,
     WatchlistEntry,
@@ -57,12 +60,11 @@ async def get_item(session: AsyncSession, item_id: int) -> Item | None:
     return await session.get(Item, item_id)
 
 
-async def add_to_watchlist(
-    session: AsyncSession, market_hash_name: str, found: SearchResult | None = None
-) -> Item:
-    """Add an item and queue its jobs. Nothing here talks to Steam: the collector does.
+async def _track(session: AsyncSession, market_hash_name: str, found: SearchResult | None) -> Item:
+    """Get or create an item and queue the jobs that keep its price history fresh.
 
-    `found` is the search result the user picked; with it the item needs no resolve job.
+    Nothing here talks to Steam: the collector does. `found` is the search result the user
+    picked; with it the item needs no resolve job.
     """
     await session.execute(
         insert(Item).values(market_hash_name=market_hash_name).on_conflict_do_nothing()
@@ -71,10 +73,17 @@ async def add_to_watchlist(
     assert item is not None
     if found is not None:
         apply_search_result(item, found, parse_item_traits(market_hash_name, found.item_type))
-    await session.execute(insert(WatchlistEntry).values(item_id=item.id).on_conflict_do_nothing())
     if item.item_type is None:
         await ensure_job(session, JOB_RESOLVE, market_hash_name)
     await ensure_history_job(session, item)
+    return item
+
+
+async def add_to_watchlist(
+    session: AsyncSession, market_hash_name: str, found: SearchResult | None = None
+) -> Item:
+    item = await _track(session, market_hash_name, found)
+    await session.execute(insert(WatchlistEntry).values(item_id=item.id).on_conflict_do_nothing())
     return item
 
 
@@ -83,6 +92,12 @@ async def remove_from_watchlist(session: AsyncSession, item_id: int) -> None:
     if item is None:
         return
     await session.execute(delete(WatchlistEntry).where(WatchlistEntry.item_id == item_id))
+    if not await is_tracked(session, item_id):
+        await _drop_item_jobs(session, item)
+
+
+async def _drop_item_jobs(session: AsyncSession, item: Item) -> None:
+    """Stop collecting an item nobody tracks; group jobs stop on their own when empty."""
     await session.execute(
         delete(FetchJob).where(
             FetchJob.kind.in_([JOB_RESOLVE, JOB_HISTORY]),
@@ -100,15 +115,23 @@ async def ensure_history_job(session: AsyncSession, item: Item) -> None:
         await ensure_job(session, JOB_HISTORY, item.market_hash_name)
 
 
-async def watched_items_in_group(session: AsyncSession, bucket_group_id: str) -> list[Item]:
+def _tracked_condition() -> ColumnElement[bool]:
+    """An item is tracked when it is in the watchlist or in an active portfolio position."""
+    in_watchlist = select(WatchlistEntry.item_id).where(WatchlistEntry.item_id == Item.id)
+    held = select(Holding.id).where(Holding.item_id == Item.id, Holding.removed_at.is_(None))
+    return or_(in_watchlist.exists(), held.exists())
+
+
+async def tracked_items_in_group(session: AsyncSession, bucket_group_id: str) -> list[Item]:
     result = await session.scalars(
-        select(Item).join(WatchlistEntry).where(Item.bucket_group_id == bucket_group_id)
+        select(Item).where(Item.bucket_group_id == bucket_group_id, _tracked_condition())
     )
     return list(result)
 
 
-async def is_watched(session: AsyncSession, item_id: int) -> bool:
-    return await session.get(WatchlistEntry, item_id) is not None
+async def is_tracked(session: AsyncSession, item_id: int) -> bool:
+    found = await session.scalar(select(Item.id).where(Item.id == item_id, _tracked_condition()))
+    return found is not None
 
 
 async def watchlist_items(session: AsyncSession) -> list[Item]:
@@ -174,7 +197,7 @@ async def load_history(
     result = await session.execute(query)
     return [
         StoredPoint(ts, cast(Resolution, resolution), price, volume, currency)
-        for ts, resolution, price, volume, currency in result.tuples()
+        for ts, resolution, price, volume, currency in result
     ]
 
 
@@ -195,7 +218,7 @@ async def latest_fx(session: AsyncSession) -> dict[int, Decimal]:
         .distinct(FxRate.currency)
         .order_by(FxRate.currency, FxRate.day.desc())
     )
-    return {currency: rate for currency, rate in result.tuples()}
+    return {currency: rate for currency, rate in result}
 
 
 async def ensure_job(
@@ -358,3 +381,157 @@ async def search_catalog(
         query = query.where(name.endswith(f"({exterior_name})"))
     query = query.order_by(CatalogEntry.sell_listings.desc().nulls_last()).limit(limit)
     return list(await session.scalars(query))
+
+
+SOURCE_INVENTORY = "inventory"
+SOURCE_MANUAL = "manual"
+
+SETTING_STEAM_ID = "steam_id64"
+
+
+async def add_manual_holding(
+    session: AsyncSession,
+    market_hash_name: str,
+    *,
+    quantity: int,
+    location: str | None = None,
+    buy_price_usd: Decimal | None = None,
+    bought_at: date | None = None,
+    found: SearchResult | None = None,
+) -> Holding:
+    item = await _track(session, market_hash_name, found)
+    holding = Holding(
+        item_id=item.id,
+        source=SOURCE_MANUAL,
+        location=location or None,
+        quantity=quantity,
+        buy_price_usd=buy_price_usd,
+        bought_at=bought_at,
+    )
+    session.add(holding)
+    await session.flush()
+    return holding
+
+
+async def update_holding(
+    session: AsyncSession,
+    holding_id: int,
+    *,
+    quantity: int | None = None,
+    location: str | None = None,
+    buy_price_usd: Decimal | None = None,
+    bought_at: date | None = None,
+) -> None:
+    """Edit a position. Quantity and location of inventory positions come from Steam."""
+    holding = await session.get(Holding, holding_id)
+    if holding is None:
+        return
+    if holding.source == SOURCE_MANUAL:
+        if quantity is not None:
+            holding.quantity = quantity
+        holding.location = location or None
+    holding.buy_price_usd = buy_price_usd
+    holding.bought_at = bought_at
+
+
+async def delete_manual_holding(session: AsyncSession, holding_id: int) -> None:
+    holding = await session.get(Holding, holding_id)
+    if holding is None or holding.source != SOURCE_MANUAL:
+        return
+    item = await get_item(session, holding.item_id)
+    await session.delete(holding)
+    await session.flush()
+    if item is not None and not await is_tracked(session, item.id):
+        await _drop_item_jobs(session, item)
+
+
+async def active_holdings(session: AsyncSession) -> list[tuple[Holding, Item]]:
+    result = await session.execute(
+        select(Holding, Item)
+        .join(Item, Holding.item_id == Item.id)
+        .where(Holding.removed_at.is_(None))
+        .order_by(Holding.source, Item.market_hash_name)
+        # Re-read rows the session already holds: the inventory sync updates them with
+        # bulk statements that bypass the identity map.
+        .execution_options(populate_existing=True)
+    )
+    return [(holding, item) for holding, item in result]
+
+
+async def sync_inventory(session: AsyncSession, items: list[InventoryItem]) -> int:
+    """Make the inventory positions match the given inventory. Returns the position count.
+
+    Items that cannot be sold on the market are ignored: they have no price.
+    """
+    quantities: dict[str, int] = {}
+    details: dict[str, InventoryItem] = {}
+    for entry in items:
+        if entry.marketable:
+            quantities[entry.market_hash_name] = (
+                quantities.get(entry.market_hash_name, 0) + entry.amount
+            )
+            details[entry.market_hash_name] = entry
+
+    await upsert_catalog(
+        session,
+        [
+            CatalogRecord(
+                market_hash_name=e.market_hash_name,
+                item_type=e.item_type,
+                bucket_group_id=e.bucket_group_id,
+                classid=e.classid,
+                icon_url=e.icon_url,
+            )
+            for e in details.values()
+        ],
+    )
+    present: set[int] = set()
+    for name, quantity in quantities.items():
+        entry = details[name]
+        found = SearchResult(
+            market_hash_name=name,
+            item_type=entry.item_type,
+            bucket_group_id=entry.bucket_group_id,
+            classid=entry.classid,
+            icon_url=entry.icon_url,
+            sell_listings=None,
+            sell_price_usd_cents=None,
+        )
+        item = await _track(session, name, found)
+        present.add(item.id)
+        stmt = insert(Holding).values(
+            item_id=item.id, source=SOURCE_INVENTORY, quantity=quantity, removed_at=None
+        )
+        await session.execute(
+            stmt.on_conflict_do_update(
+                index_elements=[Holding.item_id],
+                index_where=Holding.source == SOURCE_INVENTORY,
+                set_={"quantity": stmt.excluded.quantity, "removed_at": None},
+            )
+        )
+
+    gone = await session.scalars(
+        select(Holding).where(
+            Holding.source == SOURCE_INVENTORY,
+            Holding.removed_at.is_(None),
+            Holding.item_id.not_in(present),
+        )
+    )
+    for holding in gone:
+        holding.removed_at = func.now()
+    return len(present)
+
+
+async def get_setting(session: AsyncSession, key: str) -> str | None:
+    setting = await session.get(AppSetting, key)
+    return setting.value if setting else None
+
+
+async def set_setting(session: AsyncSession, key: str, value: str | None) -> None:
+    if value is None:
+        await session.execute(delete(AppSetting).where(AppSetting.key == key))
+        return
+    stmt = insert(AppSetting).values(key=key, value=value)
+    await session.execute(
+        stmt.on_conflict_do_update(index_elements=[AppSetting.key], set_={"value": value})
+    )

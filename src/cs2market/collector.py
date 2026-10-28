@@ -117,7 +117,7 @@ class Collector:
                 repo.apply_search_result(
                     item, match, parse_item_traits(job.target, match.item_type)
                 )
-                if await repo.is_watched(session, item.id):
+                if await repo.is_tracked(session, item.id):
                     await repo.ensure_history_job(session, item)
             await session.commit()
         return None
@@ -125,7 +125,7 @@ class Collector:
     async def _history(self, job: FetchJob) -> datetime | None:
         async with self._sessions() as session:
             item = await repo.get_item_by_name(session, job.target)
-            if item is None or not await repo.is_watched(session, item.id):
+            if item is None or not await repo.is_tracked(session, item.id):
                 return None
             if item.bucket_group_id:
                 # Older per-item job: hand over to the group job, which is cheaper.
@@ -143,7 +143,7 @@ class Collector:
 
     async def _group(self, job: FetchJob) -> datetime | None:
         async with self._sessions() as session:
-            items = await repo.watched_items_in_group(session, job.target)
+            items = await repo.tracked_items_in_group(session, job.target)
         if not items:
             return None
         variants = await self._market.group_page(job.target)
