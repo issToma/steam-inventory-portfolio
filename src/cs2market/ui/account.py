@@ -8,6 +8,7 @@ from nicegui import ui
 from cs2market.core.http import SteamBusyError, SteamError
 from cs2market.core.parsers import SteamFormatError, parse_profile_input
 from cs2market.db import repo
+from cs2market.i18n import tr, tr_n
 from cs2market.runtime import runtime
 from cs2market.search import STEAM_MAX_WAIT
 from cs2market.ui.common import time_ago, time_until
@@ -32,19 +33,21 @@ class AccountCard:
                 self._status(account)
 
     def _connect_form(self, *, cancellable: bool) -> None:
-        ui.label("Connect your Steam inventory").classes("text-subtitle1")
+        ui.label(tr("Connect your Steam inventory")).classes("text-subtitle1")
         ui.label(
-            "Paste a link to your Steam profile. Your items are imported automatically and "
-            "kept up to date; nothing else is needed from your account."
+            tr(
+                "Paste a link to your Steam profile. Your items are imported automatically and "
+                "kept up to date; nothing else is needed from your account."
+            )
         ).classes("text-muted")
         with ui.row().classes("w-full items-center"):
             link = ui.input(
-                "Profile link or SteamID64",
+                tr("Profile link or SteamID64"),
                 placeholder="https://steamcommunity.com/id/yourname",
             ).classes("grow")
-            connect = ui.button("Connect")
+            connect = ui.button(tr("Connect"))
             if cancellable:
-                ui.button("Cancel", on_click=self._stop_editing).props("flat")
+                ui.button(tr("Cancel"), on_click=self._stop_editing).props("flat")
         self._privacy_help(expanded=False)
 
         async def submit() -> None:
@@ -61,18 +64,18 @@ class AccountCard:
         try:
             ref = parse_profile_input(text)
         except ValueError:
-            ui.notify("That does not look like a Steam profile link.", type="warning")
+            ui.notify(tr("That does not look like a Steam profile link."), type="warning")
             return
         try:
             profile = await runtime.market.profile(ref, priority=True, max_wait=STEAM_MAX_WAIT)
         except SteamBusyError:
-            ui.notify("Steam is busy right now; try again in a few minutes.", type="warning")
+            ui.notify(tr("Steam is busy right now; try again in a few minutes."), type="warning")
             return
         except SteamFormatError:
-            ui.notify("Steam does not know this profile. Check the link.", type="warning")
+            ui.notify(tr("Steam does not know this profile. Check the link."), type="warning")
             return
         except SteamError:
-            ui.notify("Could not reach Steam; try again in a minute.", type="warning")
+            ui.notify(tr("Could not reach Steam; try again in a minute."), type="warning")
             return
         async with runtime.sessions() as session:
             await repo.set_inventory_owner(session, profile.steam_id64)
@@ -80,9 +83,12 @@ class AccountCard:
             await session.commit()
         self._editing = False
         if profile.privacy != "public":
-            ui.notify("Connected, but the profile is not public yet.", type="warning")
+            ui.notify(tr("Connected, but the profile is not public yet."), type="warning")
         else:
-            ui.notify(f"Connected as {profile.name}. Importing your items…", type="positive")
+            ui.notify(
+                tr("Connected as {name}. Importing your items…", name=profile.name),
+                type="positive",
+            )
         await self._on_change()
 
     def _status(self, account: repo.Account) -> None:
@@ -100,12 +106,12 @@ class AccountCard:
                         "text-subtitle1 plain-link"
                     )
                 else:
-                    ui.label("Steam account").classes("text-subtitle1")
+                    ui.label(tr("Steam account")).classes("text-subtitle1")
                 self._status_lines(account, private)
-            ui.button("Sync now", on_click=self._sync_now).props("flat")
+            ui.button(tr("Sync now"), on_click=self._sync_now).props("flat")
             with ui.button(icon="more_vert").props("flat round"), ui.menu():
-                ui.menu_item("Change account", on_click=self._start_editing)
-                ui.menu_item("Disconnect", on_click=self._disconnect)
+                ui.menu_item(tr("Change account"), on_click=self._start_editing)
+                ui.menu_item(tr("Disconnect"), on_click=self._disconnect)
         if private:
             self._privacy_help(expanded=True)
 
@@ -114,33 +120,42 @@ class AccountCard:
         job = account.job
         caption = "text-caption text-muted"
         if private:
-            ui.label("⚠ Your inventory is hidden by Steam's privacy settings.").classes(
+            ui.label(tr("⚠ Your inventory is hidden by Steam's privacy settings.")).classes(
                 "text-warning"
             )
         elif job is not None and job.status == "error":
-            ui.label(f"⚠ The last import failed: {job.last_error}").classes("text-warning")
-            ui.label(f"Next attempt {time_until(job.run_after)}.").classes(caption)
+            ui.label(tr("⚠ The last import failed: {error}", error=job.last_error)).classes(
+                "text-warning"
+            )
+            ui.label(tr("Next attempt {when}.", when=time_until(job.run_after))).classes(caption)
         elif account.positions is None:
-            ui.label("⏳ Importing your inventory… this usually takes a minute.")
+            ui.label(tr("⏳ Importing your inventory… this usually takes a minute."))
         else:
             assert job is not None
             ui.label(
-                f"✓ Synced {time_ago(job.updated_at)} · {account.positions} item"
-                f"{'s' if account.positions != 1 else ''}"
+                tr(
+                    "✓ Synced {when} · {items}",
+                    when=time_ago(job.updated_at),
+                    items=tr_n(account.positions, "{n} item", "{n} items"),
+                )
             )
-            ui.label(f"Next update {time_until(job.run_after)}.").classes(caption)
+            ui.label(tr("Next update {when}.", when=time_until(job.run_after))).classes(caption)
 
     @staticmethod
     def _privacy_help(*, expanded: bool) -> None:
-        with ui.expansion("How to make your inventory visible", value=expanded).classes(
+        with ui.expansion(tr("How to make your inventory visible"), value=expanded).classes(
             "w-full text-muted"
         ):
             ui.markdown(
-                f"1. Open your [Steam privacy settings]({PRIVACY_SETTINGS_URL}) "
-                "(log in to Steam in this browser if asked).\n"
-                "2. Set **My profile** and **Inventory** to **Public**. "
-                '"Friends only" is not enough: this app does not log in to Steam.\n'
-                "3. Come back and press **Sync now**. Steam may take a few minutes to apply it."
+                tr(
+                    "1. Open your [Steam privacy settings]({url}) (log in to Steam in this "
+                    "browser if asked).\n"
+                    "2. Set **My profile** and **Inventory** to **Public**. "
+                    '"Friends only" is not enough: this app does not log in to Steam.\n'
+                    "3. Come back and press **Sync now**. Steam may take a few minutes to "
+                    "apply it.",
+                    url=PRIVACY_SETTINGS_URL,
+                )
             )
 
     async def _sync_now(self) -> None:
@@ -149,14 +164,14 @@ class AccountCard:
             if account is not None:
                 await repo.run_job_now(session, repo.JOB_INVENTORY, account.steam_id64)
                 await session.commit()
-        ui.notify("Checking your inventory…")
+        ui.notify(tr("Checking your inventory…"))
         await self.render()
 
     async def _disconnect(self) -> None:
         async with runtime.sessions() as session:
             await repo.set_inventory_owner(session, None)
             await session.commit()
-        ui.notify("Disconnected; inventory items were removed from the portfolio.")
+        ui.notify(tr("Disconnected; inventory items were removed from the portfolio."))
         await self._on_change()
 
     async def _start_editing(self) -> None:

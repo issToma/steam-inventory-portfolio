@@ -6,6 +6,7 @@ from nicegui import ui
 from cs2market.analysis import MissingRateError, compute_metrics, to_frame
 from cs2market.core.parsers import SearchResult
 from cs2market.db import repo
+from cs2market.i18n import tr
 from cs2market.runtime import runtime
 from cs2market.ui.common import fmt_pct, fmt_usd
 from cs2market.ui.layout import page_frame
@@ -14,15 +15,17 @@ from cs2market.ui.search_box import search_box
 # Enough history for the 30-day metrics on the overview.
 OVERVIEW_WINDOW = timedelta(days=35)
 
-COLUMNS: list[dict[str, Any]] = [
-    {"name": "name", "label": "Item", "field": "name", "align": "left", "sortable": True},
-    {"name": "price", "label": "Price", "field": "price", "align": "right"},
-    {"name": "change_24h", "label": "24h", "field": "change_24h", "align": "right"},
-    {"name": "change_7d", "label": "7d", "field": "change_7d", "align": "right"},
-    {"name": "change_30d", "label": "30d", "field": "change_30d", "align": "right"},
-    {"name": "volume", "label": "Sales/day", "field": "volume", "align": "right"},
-    {"name": "status", "label": "Status", "field": "status", "align": "left"},
-]
+
+def columns() -> list[dict[str, Any]]:
+    return [
+        {"name": "name", "label": tr("Item"), "field": "name", "align": "left", "sortable": True},
+        {"name": "price", "label": tr("Price"), "field": "price", "align": "right"},
+        {"name": "change_24h", "label": "24h", "field": "change_24h", "align": "right"},
+        {"name": "change_7d", "label": "7d", "field": "change_7d", "align": "right"},
+        {"name": "change_30d", "label": "30d", "field": "change_30d", "align": "right"},
+        {"name": "volume", "label": tr("Sales/day"), "field": "volume", "align": "right"},
+        {"name": "status", "label": tr("Status"), "field": "status", "align": "left"},
+    ]
 
 
 async def _rows() -> list[dict[str, Any]]:
@@ -40,7 +43,7 @@ async def _rows() -> list[dict[str, Any]]:
                 metrics = compute_metrics(to_frame(points, fx))
             except MissingRateError:
                 metrics = None
-                row["status"] = "waiting for exchange rate"
+                row["status"] = tr("waiting for exchange rate")
             if metrics is not None:
                 row |= {
                     "price": fmt_usd(metrics.last_price),
@@ -52,13 +55,13 @@ async def _rows() -> list[dict[str, Any]]:
                     else "—",
                 }
             if job is not None and job.status == "error":
-                row["status"] = f"error: {job.last_error}"
+                row["status"] = tr("error: {error}", error=job.last_error)
             if metrics is not None:
-                row.setdefault("status", "ok")
+                row.setdefault("status", tr("ok"))
             elif job is not None and job.status == "ok":
-                row.setdefault("status", "no sales on record")
+                row.setdefault("status", tr("no sales on record"))
             else:
-                row.setdefault("status", "waiting for first fetch")
+                row.setdefault("status", tr("waiting for first fetch"))
             rows.append(row)
     return rows
 
@@ -67,8 +70,8 @@ def register() -> None:
     @ui.page("/watchlist")
     async def watchlist_page() -> None:
         with page_frame("watchlist"):
-            ui.label("Watchlist").classes("text-h5")
-            ui.label("Items you follow without owning them.").classes("text-muted")
+            ui.label(tr("Watchlist")).classes("text-h5")
+            ui.label(tr("Items you follow without owning them.")).classes("text-muted")
 
             async def watched() -> set[str]:
                 async with runtime.sessions() as session:
@@ -78,15 +81,23 @@ def register() -> None:
                 async with runtime.sessions() as session:
                     await repo.add_to_watchlist(session, result.market_hash_name, result)
                     await session.commit()
-                ui.notify(f"Added {result.market_hash_name}; history arrives in about a minute")
+                ui.notify(
+                    tr(
+                        "Added {name}; history arrives in about a minute",
+                        name=result.market_hash_name,
+                    )
+                )
                 await refresh()
                 return True
 
             search_box(
-                action_label="Add", on_pick=add, already=watched, already_label="In watchlist"
+                action_label=tr("Add"),
+                on_pick=add,
+                already=watched,
+                already_label=tr("In watchlist"),
             )
 
-            table = ui.table(columns=COLUMNS, rows=await _rows(), row_key="id").classes("w-full")
+            table = ui.table(columns=columns(), rows=await _rows(), row_key="id").classes("w-full")
             table.on("rowClick", lambda e: ui.navigate.to(f"/item/{e.args[1]['id']}"))
 
             async def refresh() -> None:

@@ -8,6 +8,7 @@ from nicegui import ui
 
 from cs2market.core.parsers import SearchResult
 from cs2market.db import repo
+from cs2market.i18n import tr
 from cs2market.portfolio import Portfolio, Position, load_portfolio
 from cs2market.runtime import runtime
 from cs2market.ui.account import AccountCard
@@ -17,18 +18,30 @@ from cs2market.ui.search_box import search_box
 
 RANGES = {"30D": timedelta(days=30), "1Y": timedelta(days=365), "All": None}
 
-COLUMNS: list[dict[str, Any]] = [
-    {"name": "name", "label": "Item", "field": "name", "align": "left", "sortable": True},
-    {"name": "where", "label": "Where", "field": "where", "align": "left", "sortable": True},
-    {"name": "quantity", "label": "Qty", "field": "quantity", "align": "right"},
-    {"name": "price", "label": "Price", "field": "price", "align": "right"},
-    {"name": "value", "label": "Value", "field": "value", "align": "right"},
-    {"name": "share", "label": "Share", "field": "share", "align": "right"},
-    {"name": "change_24h", "label": "24h", "field": "change_24h", "align": "right"},
-    {"name": "change_7d", "label": "7d", "field": "change_7d", "align": "right"},
-    {"name": "pnl", "label": "P&L", "field": "pnl", "align": "right"},
-    {"name": "actions", "label": "", "field": "id", "align": "right"},
-]
+
+def range_options() -> dict[str, str]:
+    return {key: tr(key) if key == "All" else key for key in RANGES}
+
+
+def columns() -> list[dict[str, Any]]:
+    return [
+        {"name": "name", "label": tr("Item"), "field": "name", "align": "left", "sortable": True},
+        {
+            "name": "where",
+            "label": tr("Where"),
+            "field": "where",
+            "align": "left",
+            "sortable": True,
+        },
+        {"name": "quantity", "label": tr("Qty"), "field": "quantity", "align": "right"},
+        {"name": "price", "label": tr("Price"), "field": "price", "align": "right"},
+        {"name": "value", "label": tr("Value"), "field": "value", "align": "right"},
+        {"name": "share", "label": tr("Share"), "field": "share", "align": "right"},
+        {"name": "change_24h", "label": "24h", "field": "change_24h", "align": "right"},
+        {"name": "change_7d", "label": "7d", "field": "change_7d", "align": "right"},
+        {"name": "pnl", "label": tr("P&L"), "field": "pnl", "align": "right"},
+        {"name": "actions", "label": "", "field": "id", "align": "right"},
+    ]
 
 
 @dataclass
@@ -44,7 +57,9 @@ def _row(p: Position) -> dict[str, Any]:
         "id": p.holding_id,
         "item_id": p.item_id,
         "name": p.name,
-        "where": "Inventory" if p.source == repo.SOURCE_INVENTORY else (p.location or "Manual"),
+        "where": tr("Inventory")
+        if p.source == repo.SOURCE_INVENTORY
+        else (p.location or tr("Manual")),
         "quantity": p.quantity,
         "price": fmt_usd(p.price),
         "value": fmt_usd(p.value),
@@ -75,7 +90,7 @@ def _value_chart(history: pd.Series, range_key: str) -> dict[str, Any]:
         "dataZoom": [{"type": "inside"}],
         "series": [
             {
-                "name": "Value",
+                "name": tr("Value"),
                 "type": "line",
                 "data": data,
                 "showSymbol": False,
@@ -99,21 +114,23 @@ async def _position_dialog(
     with ui.dialog() as dialog, ui.card().classes("min-w-80"):
         ui.label(title).classes("text-subtitle1")
         if not manual:
-            ui.label("Quantity comes from your Steam inventory.").classes("text-caption text-muted")
-        quantity = ui.number("Quantity", value=initial.quantity, min=1, step=1, format="%d")
+            ui.label(tr("Quantity comes from your Steam inventory.")).classes(
+                "text-caption text-muted"
+            )
+        quantity = ui.number(tr("Quantity"), value=initial.quantity, min=1, step=1, format="%d")
         location = ui.input(
-            "Where it is kept", value=initial.location or "", placeholder="Storage unit #1"
+            tr("Where it is kept"), value=initial.location or "", placeholder=tr("Storage unit #1")
         )
         quantity.set_visibility(manual)
         location.set_visibility(manual)
         price = ui.number(
-            "Purchase price per item, $ (optional)",
+            tr("Purchase price per item, $ (optional)"),
             value=float(initial.buy_price_usd) if initial.buy_price_usd is not None else None,
             min=0,
             format="%.2f",
         )
         bought = ui.input(
-            "Purchase date (optional, YYYY-MM-DD)",
+            tr("Purchase date (optional, YYYY-MM-DD)"),
             value=initial.bought_at.isoformat() if initial.bought_at else "",
         )
         error = ui.label().classes("text-negative text-caption")
@@ -123,22 +140,22 @@ async def _position_dialog(
                 buy = Decimal(str(price.value)) if price.value not in (None, "") else None
                 day = date.fromisoformat(bought.value) if bought.value else None
             except InvalidOperation, ValueError:
-                error.text = "Check the price and the date."
+                error.text = tr("Check the price and the date.")
                 return
             count = int(quantity.value or 0)
             if count < 1:
-                error.text = "Quantity must be at least 1."
+                error.text = tr("Quantity must be at least 1.")
                 return
             dialog.submit(PositionForm(count, location.value.strip() or None, buy, day))
 
         with ui.row().classes("w-full items-center"):
             if deletable:
-                ui.button("Delete", on_click=lambda: dialog.submit(DELETE)).props(
+                ui.button(tr("Delete"), on_click=lambda: dialog.submit(DELETE)).props(
                     "flat color=negative"
                 )
             ui.space()
-            ui.button("Cancel", on_click=lambda: dialog.submit(None)).props("flat")
-            ui.button("Save", on_click=submit)
+            ui.button(tr("Cancel"), on_click=lambda: dialog.submit(None)).props("flat")
+            ui.button(tr("Save"), on_click=submit)
     result: PositionForm | str | None = await dialog
     dialog.clear()
     return result
@@ -148,19 +165,19 @@ def register() -> None:
     @ui.page("/")
     async def portfolio_page() -> None:
         with page_frame("portfolio"):
-            ui.label("Portfolio").classes("text-h5")
+            ui.label(tr("Portfolio")).classes("text-h5")
 
             account = AccountCard(on_change=lambda: refresh())
 
             # --- Totals and chart ------------------------------------------------------
             totals = ui.row().classes("gap-3")
             with ui.row().classes("items-center"):
-                range_toggle = ui.toggle(list(RANGES), value="1Y")
+                range_toggle = ui.toggle(range_options(), value="1Y")
             chart = ui.echart({}, theme=echart_theme()).classes("w-full h-72")
 
             # --- Positions ---------------------------------------------------------------
-            ui.label("Positions").classes("text-h6")
-            table = ui.table(columns=COLUMNS, rows=[], row_key="id").classes("w-full")
+            ui.label(tr("Positions")).classes("text-h6")
+            table = ui.table(columns=columns(), rows=[], row_key="id").classes("w-full")
             table.add_slot(
                 "body-cell-actions",
                 '<q-td :props="props">'
@@ -170,9 +187,9 @@ def register() -> None:
             )
             table.on("rowClick", lambda e: ui.navigate.to(f"/item/{e.args[1]['item_id']}"))
 
-            ui.label("Add items that are not in your inventory").classes("text-h6")
+            ui.label(tr("Add items that are not in your inventory")).classes("text-h6")
             ui.label(
-                "For example, storage unit contents: Steam does not show them in the inventory."
+                tr("For example, storage unit contents: Steam does not show them in the inventory.")
             ).classes("text-muted")
 
             portfolio: Portfolio | None = None
@@ -182,18 +199,23 @@ def register() -> None:
                 portfolio = await load_portfolio(runtime.sessions)
                 totals.clear()
                 with totals:
-                    _stat("Value", fmt_usd(portfolio.value))
-                    _stat("You receive after fees", fmt_usd(portfolio.proceeds))
+                    _stat(tr("Value"), fmt_usd(portfolio.value))
+                    _stat(tr("You receive after fees"), fmt_usd(portfolio.proceeds))
                     if portfolio.cost:
                         _stat(
-                            "Profit / loss",
+                            tr("Profit / loss"),
                             f"{fmt_usd(portfolio.pnl)} ({portfolio.pnl / portfolio.cost:+.1%})",
                             pct_color(portfolio.pnl),
-                            "after fees, positions with a purchase price",
+                            tr("after fees, positions with a purchase price"),
                         )
-                    _stat("Positions", str(len(portfolio.positions)))
+                    _stat(tr("Positions"), str(len(portfolio.positions)))
                     if portfolio.unpriced:
-                        _stat("Waiting for prices", str(portfolio.unpriced), "", "fetched shortly")
+                        _stat(
+                            tr("Waiting for prices"),
+                            str(portfolio.unpriced),
+                            "",
+                            tr("fetched shortly"),
+                        )
                 table.rows = [_row(p) for p in portfolio.positions]
                 table.update()
                 redraw()
@@ -221,7 +243,7 @@ def register() -> None:
                         found=result,
                     )
                     await session.commit()
-                ui.notify(f"Added {result.market_hash_name}")
+                ui.notify(tr("Added {name}", name=result.market_hash_name))
                 await refresh()
                 return True
 
@@ -261,7 +283,7 @@ def register() -> None:
                     await session.commit()
                 await refresh()
 
-            search_box(action_label="Add to portfolio", on_pick=add_manual)
+            search_box(action_label=tr("Add to portfolio"), on_pick=add_manual)
             table.on("edit", edit)
             range_toggle.on_value_change(redraw)
             await refresh()

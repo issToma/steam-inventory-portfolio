@@ -7,6 +7,8 @@ from typing import Literal
 
 from nicegui import app, ui
 
+from cs2market.i18n import LANGUAGES, Language, current_language, set_language, tr
+
 type Theme = Literal["dark", "dim", "light"]
 
 THEMES: dict[Theme, str] = {"dark": "Dark", "dim": "Dark dimmed", "light": "Light"}
@@ -90,6 +92,7 @@ def page_frame(active: str) -> Iterator[None]:
     with ui.header().classes("app-header items-center gap-2 py-1"):
         ui.button(icon="menu", on_click=drawer.toggle).props("flat round dense color=grey")
         ui.space()
+        _language_menu()
         _theme_menu(theme)
 
     with ui.column().classes("w-full max-w-6xl mx-auto p-4 gap-4"):
@@ -103,15 +106,15 @@ def _nav(items: list[NavItem], active: str) -> None:
             if item.path is None:
                 with ui.row().classes(f"{classes} disabled"):
                     ui.icon(item.icon)
-                    ui.label(item.label).classes("grow")
-                    ui.badge("soon").props("outline color=grey")
+                    ui.label(tr(item.label)).classes("grow")
+                    ui.badge(tr("soon")).props("outline color=grey")
                 continue
             with (
                 ui.link(target=item.path).classes("plain-link w-full"),
                 ui.row().classes(f"{classes} {'active' if item.key == active else ''}"),
             ):
                 ui.icon(item.icon)
-                ui.label(item.label)
+                ui.label(tr(item.label))
 
 
 def _theme_menu(theme: Theme) -> None:
@@ -123,7 +126,23 @@ def _theme_menu(theme: Theme) -> None:
         with ui.menu():
             for key, label in THEMES.items():
                 ui.menu_item(
-                    f"{'✓ ' if key == theme else ''}{label}",
+                    f"{'✓ ' if key == theme else ''}{tr(label)}",
                     on_click=lambda k=key: choose(k),
                 )
-        ui.tooltip("Theme")
+        ui.tooltip(tr("Theme"))
+
+
+def _language_menu() -> None:
+    def choose(language: Language) -> None:
+        set_language(language)
+        ui.navigate.reload()
+
+    current = current_language()
+    with ui.button(current.upper()).props("flat dense color=grey"):
+        with ui.menu():
+            for key, label in LANGUAGES.items():
+                ui.menu_item(
+                    f"{'✓ ' if key == current else ''}{label}",
+                    on_click=lambda k=key: choose(k),
+                )
+        ui.tooltip(tr("Language"))

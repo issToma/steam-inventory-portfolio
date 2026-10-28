@@ -16,6 +16,7 @@ from cs2market.analysis import (
 from cs2market.core.currency import USD, currency_name
 from cs2market.core.fees import seller_proceeds
 from cs2market.db import repo
+from cs2market.i18n import tr
 from cs2market.runtime import runtime
 from cs2market.ui.common import fmt_pct, fmt_usd, pct_color
 from cs2market.ui.layout import echart_theme, page_frame
@@ -26,6 +27,10 @@ RANGES = {
     "1Y": timedelta(days=365),
     "All": None,
 }
+
+
+def range_options() -> dict[str, str]:
+    return {key: tr(key) if key == "All" else key for key in RANGES}
 
 
 def _select(frame: pd.DataFrame, range_key: str) -> pd.DataFrame:
@@ -56,7 +61,7 @@ def _chart_options(
     price_tooltip = {":valueFormatter": "v => v == null ? '' : '$' + v.toFixed(2)"}
     lines: list[dict[str, Any]] = [
         {
-            "name": "Price",
+            "name": tr("Price"),
             "type": "line",
             "data": _points(series["price"]),
             "showSymbol": False,
@@ -87,7 +92,7 @@ def _chart_options(
             }
         )
     volume = {
-        "name": "Sales",
+        "name": tr("Sales"),
         "type": "bar",
         "xAxisIndex": 1,
         "yAxisIndex": 1,
@@ -138,7 +143,7 @@ def register() -> None:
 
         with page_frame("item"):
             if item is None:
-                ui.label("Item not found.")
+                ui.label(tr("Item not found."))
                 return
             ui.label(item.market_hash_name).classes("text-h5")
             traits = " · ".join(
@@ -151,20 +156,25 @@ def register() -> None:
                 frame = to_frame(points, fx)
             except MissingRateError as exc:
                 ui.label(
-                    f"Waiting for Steam's {currency_name(exc.currency)} → USD rate; "
-                    "the collector fetches it right after the first history download."
+                    tr(
+                        "Waiting for Steam's {currency} → USD rate; the collector fetches it "
+                        "right after the first history download.",
+                        currency=currency_name(exc.currency),
+                    )
                 )
                 return
             metrics = compute_metrics(frame)
             if metrics is None:
                 ui.label(
-                    "No price history yet. Either the collector has not fetched it, "
-                    "or the item has never been sold on the market."
+                    tr(
+                        "No price history yet. Either the collector has not fetched it, or the "
+                        "item has never been sold on the market."
+                    )
                 )
                 return
 
             with ui.row().classes("gap-3"):
-                _stat("Price", fmt_usd(metrics.last_price))
+                _stat(tr("Price"), fmt_usd(metrics.last_price))
                 for label, value in (
                     ("24h", metrics.change_24h),
                     ("7d", metrics.change_7d),
@@ -172,19 +182,19 @@ def register() -> None:
                 ):
                     _stat(label, fmt_pct(value), pct_color(value))
                 _stat(
-                    "Volatility (30d, daily)",
+                    tr("Volatility (30d, daily)"),
                     "—" if metrics.volatility_30d is None else f"{metrics.volatility_30d:.1%}",
                 )
                 _stat(
-                    "Sales per day (30d)",
+                    tr("Sales per day (30d)"),
                     "—"
                     if metrics.avg_daily_volume_30d is None
                     else f"{metrics.avg_daily_volume_30d:,.0f}",
                 )
-                _stat("You receive after fee", fmt_usd(metrics.proceeds_after_fee))
+                _stat(tr("You receive after fee"), fmt_usd(metrics.proceeds_after_fee))
 
             with ui.row().classes("items-center gap-4"):
-                range_toggle = ui.toggle(list(RANGES), value="30D")
+                range_toggle = ui.toggle(range_options(), value="30D")
                 sma_switch = ui.switch("SMA")
                 sma_window = (
                     ui.number(value=20, min=2, max=500, step=1).props("dense").classes("w-20")
@@ -215,14 +225,18 @@ def register() -> None:
             last_currency = points[-1].currency
             if last_currency != USD:
                 ui.label(
-                    f"Steam returned prices in {currency_name(last_currency)}; converted to USD "
-                    f"at Steam's own rate ({fx[last_currency]:.4f} USD per unit)."
+                    tr(
+                        "Steam returned prices in {currency}; converted to USD at Steam's own "
+                        "rate ({rate} USD per unit).",
+                        currency=currency_name(last_currency),
+                        rate=f"{fx[last_currency]:.4f}",
+                    )
                 ).classes("text-caption text-muted")
 
             with ui.card().classes("w-full max-w-md"):
-                ui.label("Fee calculator").classes("text-subtitle1")
+                ui.label(tr("Fee calculator")).classes("text-subtitle1")
                 price_input = ui.number(
-                    "Listing price (buyer pays), $",
+                    tr("Listing price (buyer pays), $"),
                     value=round(metrics.last_price, 2),
                     format="%.2f",
                 )
@@ -231,9 +245,10 @@ def register() -> None:
                 def update_fee() -> None:
                     cents = round((price_input.value or 0) * 100)
                     proceeds = seller_proceeds(cents)
-                    result.text = (
-                        f"You receive {fmt_usd(proceeds / 100)}, "
-                        f"fees {fmt_usd((cents - proceeds) / 100)}"
+                    result.text = tr(
+                        "You receive {proceeds}, fees {fees}",
+                        proceeds=fmt_usd(proceeds / 100),
+                        fees=fmt_usd((cents - proceeds) / 100),
                     )
 
                 price_input.on_value_change(update_fee)
@@ -252,5 +267,6 @@ def register() -> None:
                 ui.navigate.reload()
 
             ui.button(
-                "Remove from watchlist" if watched else "Add to watchlist", on_click=toggle_watch
+                tr("Remove from watchlist") if watched else tr("Add to watchlist"),
+                on_click=toggle_watch,
             ).props(f"flat color={'negative' if watched else 'primary'}")

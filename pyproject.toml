@@ -35,6 +35,10 @@ select = ["E", "W", "F", "I", "B", "UP", "SIM", "ASYNC", "RUF", "N", "PTH"]
 # Cyrillic letters appear in real Steam price strings such as "2582,16 руб.".
 allowed-confusables = ["р", "у", "б"]
 
+[tool.ruff.lint.per-file-ignores]
+# Russian translations: Cyrillic letters and long sentences are expected.
+"src/cs2market/i18n.py" = ["RUF001", "E501"]
+
 [tool.mypy]
 python_version = "3.14"
 strict = true
