@@ -1,0 +1,131 @@
+{
+ "success": true,
+ "facets": {
+  "730_Type": {
+   "appid": 730,
+   "name": "Type",
+   "localized_name": "Type",
+   "tags": {
+    "CSGO_Type_SMG": {
+     "localized_name": "SMG"
+    },
+    "CSGO_Type_Pistol": {
+     "localized_name": "Pistol"
+    },
+    "CSGO_Type_Rifle": {
+     "localized_name": "Rifle"
+    },
+    "CSGO_Type_SniperRifle": {
+     "localized_name": "Sniper Rifle"
+    },
+    "CSGO_Type_Shotgun": {
+     "localized_name": "Shotgun"
+    },
+    "CSGO_Type_Machinegun": {
+     "localized_name": "Machinegun"
+    },
+    "CSGO_Type_Equipment": {
+     "localized_name": "Equipment"
+    },
+    "CSGO_Tool_Keychain": {
+     "localized_name": "Charm"
+    },
+    "CSGO_Type_Knife": {
+     "localized_name": "Knife"
+    },
+    "CSGO_Type_WeaponCase": {
+     "localized_name": "Container"
+    },
+    "Type_CustomPlayer": {
+     "localized_name": "Agent"
+    },
+    "CSGO_Tool_Sticker": {
+     "localized_name": "Sticker"
+    },
+    "Type_Hands": {
+     "localized_name": "Gloves"
+    },
+    "CSGO_Type_Spray": {
+     "localized_name": "Graffiti"
+    },
+    "CSGO_Type_MusicKit": {
+     "localized_name": "Music Kit"
+    },
+    "CSGO_Tool_Patch": {
+     "localized_name": "Patch"
+    },
+    "CSGO_Type_Collectible": {
+     "localized_name": "Collectible"
+    },
+    "CSGO_Type_Ticket": {
+     "localized_name": "Pass"
+    },
+    "CSGO_Tool_WeaponCase_KeyTag": {
+     "localized_name": "Key"
+    },
+    "CSGO_Tool_GiftTag": {
+     "localized_name": "Gift"
+    },
+    "CSGO_Tool_Name_TagTag": {
+     "localized_name": "Tag"
+    },
+    "CSGO_Type_Tool": {
+     "localized_name": "Tool"
+    }
+   }
+  },
+  "730_Quality": {
+   "appid": 730,
+   "name": "Quality",
+   "localized_name": "Category",
+   "tags": {
+    "normal": {
+     "localized_name": "Normal"
+    },
+    "strange": {
+     "localized_name": "StatTrak™"
+    },
+    "tournament": {
+     "localized_name": "Souvenir"
+    },
+    "unusual": {
+     "localized_name": "★"
+    },
+    "highlight": {
+     "localized_name": "Highlight"
+    },
+    "customized": {
+     "localized_name": "Customized"
+    },
+    "unusual_strange": {
+     "localized_name": "★ StatTrak™"
+    }
+   }
+  },
+  "730_Exterior": {
+   "appid": 730,
+   "name": "Exterior",
+   "localized_name": "Exterior",
+   "tags": {
+    "WearCategory2": {
+     "localized_name": "Field-Tested"
+    },
+    "WearCategory1": {
+     "localized_name": "Minimal Wear"
+    },
+    "WearCategory4": {
+     "localized_name": "Battle-Scarred"
+    },
+    "WearCategory0": {
+     "localized_name": "Factory New"
+    },
+    "WearCategory3": {
+     "localized_name": "Well-Worn"
+    },
+    "WearCategoryNA": {
+     "localized_name": "Not Painted"
+    }
+   }
+  }
+ }
+}

@@ -4,7 +4,7 @@ from typing import Any, cast
 import pytest
 
 from cs2market.core.http import Params, SteamClient
-from cs2market.core.steam import Quality, SteamMarket
+from cs2market.core.steam import EXTERIOR_TAGS, QUALITY_TAGS, TYPE_TAGS, Quality, SteamMarket
 
 
 class FakeClient:
@@ -54,3 +54,14 @@ async def test_search_by_kind_and_exterior(load_fixture: Callable[[str], Any]) -
     assert ("category_730_Type[]", "tag_CSGO_Type_Knife") in params
     assert ("category_730_Exterior[]", "tag_WearCategory0") in params
     assert ("category_730_Quality[]", "tag_unusual_strange") in params
+
+
+def test_filter_tags_exist_on_steam(load_fixture: Callable[[str], Any]) -> None:
+    facets = load_fixture("appfilters.json")["facets"]
+
+    def known(facet: str) -> set[str]:
+        return {f"tag_{tag}" for tag in facets[f"730_{facet}"]["tags"]}
+
+    assert set(TYPE_TAGS.values()) <= known("Type")
+    assert {t for tags in QUALITY_TAGS.values() for t in tags} <= known("Quality")
+    assert set(EXTERIOR_TAGS.values()) <= known("Exterior")

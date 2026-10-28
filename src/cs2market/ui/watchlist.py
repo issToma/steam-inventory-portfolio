@@ -30,6 +30,7 @@ KIND_OPTIONS: dict[str, str] = {
     "smg": "SMG",
     "shotgun": "Shotgun",
     "machinegun": "Machine gun",
+    "equipment": "Equipment (Zeus)",
     "knife": "Knife",
     "gloves": "Gloves",
     "sticker": "Sticker",
@@ -40,6 +41,7 @@ KIND_OPTIONS: dict[str, str] = {
     "charm": "Charm",
     "music_kit": "Music kit",
     "key": "Key",
+    "collectible": "Collectible (pins)",
 }
 QUALITY_OPTIONS: dict[str, str] = {
     ANY: "All",

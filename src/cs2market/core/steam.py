@@ -36,6 +36,7 @@ type ItemKind = Literal[
     "smg",
     "shotgun",
     "machinegun",
+    "equipment",
     "knife",
     "gloves",
     "sticker",
@@ -46,9 +47,11 @@ type ItemKind = Literal[
     "charm",
     "music_kit",
     "key",
+    "collectible",
 ]
 
-# Steam's item type tags (category_730_Type[]); checked against /market/appfilters/730.
+# Steam's item type tags (category_730_Type[]); checked against /market/appfilters/730
+# on 2026-10-28.
 TYPE_TAGS: dict[ItemKind, str] = {
     "rifle": "tag_CSGO_Type_Rifle",
     "sniper_rifle": "tag_CSGO_Type_SniperRifle",
@@ -56,6 +59,7 @@ TYPE_TAGS: dict[ItemKind, str] = {
     "smg": "tag_CSGO_Type_SMG",
     "shotgun": "tag_CSGO_Type_Shotgun",
     "machinegun": "tag_CSGO_Type_Machinegun",
+    "equipment": "tag_CSGO_Type_Equipment",
     "knife": "tag_CSGO_Type_Knife",
     "gloves": "tag_Type_Hands",
     "sticker": "tag_CSGO_Tool_Sticker",
@@ -66,11 +70,22 @@ TYPE_TAGS: dict[ItemKind, str] = {
     "charm": "tag_CSGO_Tool_Keychain",
     "music_kit": "tag_CSGO_Type_MusicKit",
     "key": "tag_CSGO_Tool_WeaponCase_KeyTag",
+    "collectible": "tag_CSGO_Type_Collectible",
 }
 
 # Only these kinds have wear and StatTrak/Souvenir variants.
 SKIN_KINDS: frozenset[ItemKind] = frozenset(
-    {"rifle", "sniper_rifle", "pistol", "smg", "shotgun", "machinegun", "knife", "gloves"}
+    {
+        "rifle",
+        "sniper_rifle",
+        "pistol",
+        "smg",
+        "shotgun",
+        "machinegun",
+        "equipment",
+        "knife",
+        "gloves",
+    }
 )
 
 type Exterior = Literal["fn", "mw", "ft", "ww", "bs"]
