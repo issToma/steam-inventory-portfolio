@@ -15,13 +15,14 @@ from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from invinv.analysis import MissingRateError, compute_metrics, to_frame
+from invinv.analysis import MissingRateError, compute_metrics, price_views, to_frame
 from invinv.core.games import game_name
 from invinv.core.telegram import TelegramBot, TelegramError
 from invinv.db import repo
 from invinv.db.session import SessionMaker
 from invinv.db.tables import AlertEvent, AlertRule, Item
 from invinv.i18n import LANGUAGES, Language, tr_in
+from invinv.pricing import Listing, listing_of, quote, recent_sales_price
 
 log = logging.getLogger(__name__)
 
@@ -81,14 +82,27 @@ def step(rule: AlertRule, met: bool, now: datetime) -> bool:
     return False
 
 
-def reading_from(points: Sequence[repo.StoredPoint], fx: Mapping[int, Decimal]) -> Reading | None:
+def reading_from(
+    points: Sequence[repo.StoredPoint],
+    fx: Mapping[int, Decimal],
+    listing: Listing | None,
+    now: datetime,
+) -> Reading | None:
+    """The item's current price (pricing.quote) and its changes from the sales history."""
     try:
-        metrics = compute_metrics(to_frame(points, fx))
+        frame = to_frame(points, fx)
     except MissingRateError:
+        frame = to_frame([], fx)
+    views = price_views(frame) if not frame.empty else None
+    metrics = compute_metrics(frame, views)
+    current = quote(listing, recent_sales_price(views) if views else None, now)
+    if current is None:
         return None
-    if metrics is None:
-        return None
-    return Reading(metrics.last_price, metrics.change_24h, metrics.change_7d)
+    return Reading(
+        current.price,
+        metrics.change_24h if metrics else None,
+        metrics.change_7d if metrics else None,
+    )
 
 
 async def check_items(session: AsyncSession, item_ids: list[int], now: datetime) -> int:
@@ -98,7 +112,11 @@ async def check_items(session: AsyncSession, item_ids: list[int], now: datetime)
         return 0
     fx = await repo.latest_fx(session)
     points = await repo.load_histories(session, list({r.item_id for r in rules}))
-    readings = {item_id: reading_from(rows, fx) for item_id, rows in points.items()}
+    readings = {}
+    for item_id, rows in points.items():
+        item = await repo.get_item(session, item_id)
+        listing = listing_of(item) if item else None
+        readings[item_id] = reading_from(rows, fx, listing, now)
     telegram = await repo.telegram_settings(session)
     fired = 0
     for rule in rules:

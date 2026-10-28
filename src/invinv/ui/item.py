@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pandas as pd
@@ -11,6 +11,7 @@ from invinv.analysis import (
     daily_series,
     ema,
     hourly_series,
+    price_views,
     remove_outliers,
     sma,
     to_frame,
@@ -18,11 +19,12 @@ from invinv.analysis import (
 from invinv.core.currency import USD, currency_name
 from invinv.core.fees import seller_proceeds
 from invinv.db import repo
-from invinv.i18n import tr
+from invinv.i18n import tr, tr_n
 from invinv.portfolio import fee_rate
+from invinv.pricing import Listing, Quote, listing_of, quote, recent_sales_price
 from invinv.runtime import runtime
 from invinv.ui.alerts_page import open_item_alerts
-from invinv.ui.common import fmt_pct, fmt_usd, icon_url, pct_color, rarity_color
+from invinv.ui.common import fmt_pct, fmt_usd, icon_url, pct_color, rarity_color, time_ago
 from invinv.ui.games import game_names, name_of
 from invinv.ui.layout import SEGMENTED_PROPS, page_frame, themed_chart
 from invinv.ui.portfolio import GRID_COLOR
@@ -140,10 +142,20 @@ def _chart_options(
     }
 
 
-def _stat(label: str, value: str, color: str = "") -> None:
+def _stat(label: str, value: str, color: str = "", hint: str = "") -> None:
     with ui.card().classes("min-w-36"):
         ui.label(label).classes("text-caption text-muted")
         ui.label(value).classes(f"text-h6 {color}")
+        if hint:
+            ui.label(hint).classes("text-caption text-muted")
+
+
+def _price_hint(current: Quote, listing: Listing | None) -> str:
+    if current.source == "listing" and listing is not None:
+        return tr("cheapest listing · {ago}", ago=time_ago(listing.checked_at))
+    if listing is not None and listing.lowest_usd is None:
+        return tr("nothing listed · median of recent sales")
+    return tr("median of recent sales")
 
 
 def register() -> None:
@@ -244,15 +256,33 @@ def register() -> None:
                 ).classes("text-muted")
                 return
 
+            listing = listing_of(item)
+            views = price_views(frame)
+            current = quote(listing, recent_sales_price(views), datetime.now(UTC)) or Quote(
+                metrics.last_price, "sales"
+            )
             if held:
                 holding_line.text = tr(
                     "You hold {quantity} · worth {value}",
                     quantity=held,
-                    value=fmt_usd(held * metrics.last_price),
+                    value=fmt_usd(held * current.price),
                 )
 
             with ui.row().classes("gap-3"):
-                _stat(tr("Price"), fmt_usd(metrics.last_price))
+                _stat(tr("Price"), fmt_usd(current.price), hint=_price_hint(current, listing))
+                median = listing.median_24h_usd if listing else None
+                _stat(
+                    tr("Median sale, 24h"),
+                    fmt_usd(float(median)) if median is not None else "—",
+                    hint=tr_n(listing.sales_24h or 0, "{n} sale", "{n} sales")
+                    if listing is not None
+                    else "",
+                )
+                _stat(
+                    tr("Last sale"),
+                    fmt_usd(metrics.last_price),
+                    hint=time_ago(metrics.last_ts.to_pydatetime()),
+                )
                 for label, value in (
                     ("24h", metrics.change_24h),
                     ("7d", metrics.change_7d),
@@ -269,7 +299,10 @@ def register() -> None:
                     if metrics.avg_daily_volume_30d is None
                     else f"{metrics.avg_daily_volume_30d:,.0f}",
                 )
-                _stat(tr("You receive after fee"), fmt_usd(metrics.proceeds_after_fee))
+                _stat(
+                    tr("You receive after fee"),
+                    fmt_usd(seller_proceeds(round(current.price * 100), fee) / 100),
+                )
 
             with ui.row().classes("items-center gap-4"):
                 range_toggle = (
@@ -340,7 +373,7 @@ def register() -> None:
                 ui.label(tr("Fee calculator")).classes("text-subtitle1")
                 price_input = ui.number(
                     tr("Listing price (buyer pays), $"),
-                    value=round(metrics.last_price, 2),
+                    value=round(current.price, 2),
                     format="%.2f",
                 )
                 result = ui.label()

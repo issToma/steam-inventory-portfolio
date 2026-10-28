@@ -7,6 +7,7 @@ import pytest
 from invinv.analysis import to_frame
 from invinv.db.repo import StoredPoint
 from invinv.portfolio import PositionInput, period_stats, value_positions
+from invinv.pricing import Listing
 
 DAY = datetime(2026, 10, 1, tzinfo=UTC)
 
@@ -31,6 +32,10 @@ def position(
         quantity=quantity,
         buy_price_usd=Decimal(buy) if buy else None,
         history=to_frame(history(*prices), {}),
+        # Listed now at the last price.
+        listing=Listing(Decimal(str(prices[-1])), None, None, datetime.now(UTC))
+        if prices
+        else None,
     )
 
 
@@ -112,3 +117,42 @@ def test_value_history_starts_when_every_item_is_on_the_market() -> None:
 
     assert list(history) == [15, 16]
     assert history.index[0] == pd.Timestamp(DAY + timedelta(days=2))
+
+
+def test_price_is_the_cheapest_listing_not_an_odd_last_sale() -> None:
+    odd = PositionInput(
+        holding_id=1,
+        item_id=1,
+        name="loading screen",
+        source="inventory",
+        location=None,
+        appid=570,
+        quantity=1,
+        buy_price_usd=None,
+        history=to_frame(history(0.03, 0.03, 0.03, 32.0, 0.03, 15.0), {}),
+        listing=Listing(Decimal("0.03"), None, None, datetime.now(UTC)),
+    )
+
+    (position_,) = value_positions([odd]).positions
+
+    assert (position_.price, position_.price_source) == (0.03, "listing")
+
+
+def test_without_listings_the_price_is_the_median_of_recent_sales() -> None:
+    stale = datetime.now(UTC) - timedelta(days=10)
+    no_listing = PositionInput(
+        holding_id=1,
+        item_id=1,
+        name="loading screen",
+        source="inventory",
+        location=None,
+        appid=570,
+        quantity=1,
+        buy_price_usd=None,
+        history=to_frame(history(0.03, 0.03, 0.03, 32.0, 0.03, 15.0), {}),
+        listing=Listing(Decimal("9"), None, None, stale),  # too old to trust
+    )
+
+    (position_,) = value_positions([no_listing]).positions
+
+    assert (position_.price, position_.price_source) == (0.03, "sales")

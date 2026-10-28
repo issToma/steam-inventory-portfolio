@@ -243,10 +243,12 @@ async def test_valuable_and_watched_items_are_fetched_first(session: AsyncSessio
     order = []
     now = datetime.now(UTC) + timedelta(minutes=1)
     while (job := await repo.next_due_job(session, now)) is not None:
-        order.append(job.target)
+        order.append((job.kind, job.target))
         await repo.finish_job(session, job, None)
 
-    assert order == ["570:Odd Hat", "570:Fancy Hat", "570:Cheap Hat"]
+    # Prices (listings) first, histories after, each in the order of importance.
+    hats = ["570:Odd Hat", "570:Fancy Hat", "570:Cheap Hat"]
+    assert order == [("listing", h) for h in hats] + [("history", h) for h in hats]
 
 
 async def test_price_progress(session: AsyncSession) -> None:

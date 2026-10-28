@@ -57,6 +57,12 @@ class Item(Base):
     icon_url: Mapped[str | None] = mapped_column(Text)
     # The game's market fee share when it is not Steam's default 10%, from the inventory.
     publisher_fee: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
+    # The market right now (priceoverview, in USD): the cheapest listing (None when nothing
+    # is listed), the median sale and the number of sales of the last 24 hours.
+    lowest_listing_usd: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    median_24h_usd: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    sales_24h: Mapped[int | None] = mapped_column(Integer)
+    listing_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

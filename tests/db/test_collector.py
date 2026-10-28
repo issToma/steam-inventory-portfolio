@@ -10,6 +10,7 @@ from invinv.core.parsers import (
     InventoryApp,
     InventoryItem,
     PriceHistory,
+    PriceOverview,
     ProfileRef,
     SearchResult,
     SteamProfile,
@@ -17,6 +18,7 @@ from invinv.core.parsers import (
 from invinv.core.steam import InventoryPrivateError, SteamMarket
 from invinv.db import repo
 from invinv.db.session import SessionMaker
+from invinv.db.tables import FetchJob
 from invinv.settings import Settings
 
 STEAM_ID = "76561198000000000"
@@ -153,8 +155,9 @@ async def test_single_variant_group_uses_the_light_endpoint(sessions: SessionMak
     async with sessions() as session:
         job = await repo.get_job(session, repo.JOB_GROUP, "730:G1")
     assert job is not None
-    # $50 held, 1 sale a day: valuable and liquid enough for the hourly refresh.
-    assert job.run_after == NOW.replace(hour=13)
+    # Not watched: the history only feeds charts and refreshes daily; the listing job
+    # keeps the price fresh.
+    assert job.run_after == NOW + timedelta(days=1)
 
 
 async def test_several_variants_share_one_group_page(sessions: SessionMaker) -> None:
@@ -260,3 +263,51 @@ async def test_resuming_runs_rate_limited_jobs_now(sessions: SessionMaker) -> No
         await session.commit()
 
         assert await repo.due_job_count(session) == 1
+
+
+class ListingMarket:
+    def __init__(self, lowest: str | None) -> None:
+        self.lowest = lowest
+        self.calls: list[tuple[str, int, int]] = []
+
+    async def price_overview(self, name: str, currency: int, appid: int) -> PriceOverview:
+        self.calls.append((name, currency, appid))
+        price = Decimal(self.lowest) if self.lowest else None
+        return PriceOverview(lowest_price=price, median_price=Decimal("0.05"), volume=3)
+
+
+async def run_listing_job(sessions: SessionMaker, market: ListingMarket) -> FetchJob:
+    async with sessions() as session:
+        await repo.add_manual_holding(session, "Loading Screen", quantity=1, appid=570)
+        await session.commit()
+        job = await repo.get_job(session, repo.JOB_LISTING, "570:Loading Screen")
+    assert job is not None
+    await collector(sessions, market)._run(job)
+    async with sessions() as session:
+        done = await repo.get_job(session, repo.JOB_LISTING, "570:Loading Screen")
+    assert done is not None
+    return done
+
+
+async def test_listing_job_stores_the_cheapest_listing_in_usd(sessions: SessionMaker) -> None:
+    market = ListingMarket("0.03")
+
+    job = await run_listing_job(sessions, market)
+
+    assert market.calls == [("Loading Screen", 1, 570)]
+    async with sessions() as session:
+        item = await repo.get_item_by_name(session, "Loading Screen", 570)
+    assert item is not None
+    assert (item.lowest_listing_usd, item.median_24h_usd, item.sales_24h) == (
+        Decimal("0.0300"),
+        Decimal("0.0500"),
+        3,
+    )
+    # $0.03 held, 3 sales a day: a cheap position, checked once a day.
+    assert job.run_after == NOW + timedelta(days=1)
+
+
+async def test_an_item_with_nothing_listed_is_checked_daily(sessions: SessionMaker) -> None:
+    job = await run_listing_job(sessions, ListingMarket(None))
+
+    assert job.run_after == NOW + timedelta(days=1)

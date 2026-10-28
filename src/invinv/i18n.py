@@ -62,6 +62,7 @@ RU_PLURAL: dict[tuple[str, str], tuple[str, str, str]] = {
     ("{n} hour", "{n} hours"): ("{n} час", "{n} часа", "{n} часов"),
     ("{n} minute", "{n} minutes"): ("{n} минуту", "{n} минуты", "{n} минут"),
     ("{n} item", "{n} items"): ("{n} предмет", "{n} предмета", "{n} предметов"),
+    ("{n} sale", "{n} sales"): ("{n} продажа", "{n} продажи", "{n} продаж"),
     ("Updating · {n} task queued", "Updating · {n} tasks queued"): (
         "Обновляем · в очереди {n} задача",
         "Обновляем · в очереди {n} задачи",
@@ -427,4 +428,10 @@ RU: dict[str, str] = {
     "{seconds} s now · adaptive, {fastest} to {slowest} s": (
         "сейчас {seconds} с · адаптивно, от {fastest} до {slowest} с"
     ),
+    # Current price
+    "Last sale": "Последняя продажа",
+    "Median sale, 24h": "Медиана продаж, 24ч",
+    "cheapest listing · {ago}": "самый дешёвый лот · {ago}",
+    "median of recent sales": "медиана последних продаж",
+    "nothing listed · median of recent sales": "лотов нет · медиана последних продаж",
 }

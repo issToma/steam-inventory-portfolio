@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from itertools import batched
 
@@ -19,10 +19,11 @@ from invinv.analysis import (
     recent_trend,
     to_frame,
 )
-from invinv.core.fees import PUBLISHER_FEE_RATE
+from invinv.core.fees import PUBLISHER_FEE_RATE, seller_proceeds
 from invinv.db import repo
 from invinv.db.session import SessionMaker
 from invinv.db.tables import Item
+from invinv.pricing import Listing, PriceSource, listing_of, quote, recent_sales_price
 
 # Periods offered for the portfolio's statistics, movers and chart; None = all history.
 PERIODS: dict[str, timedelta | None] = {
@@ -86,6 +87,7 @@ class PositionInput:
     publisher_fee: float = PUBLISHER_FEE_RATE
     # Computed from `history` when not given; the app passes cached ones (ItemPrices).
     prices: ItemPrices | None = None
+    listing: Listing | None = None
 
 
 @dataclass(frozen=True)
@@ -96,12 +98,14 @@ class ItemPrices:
     daily: pd.Series | None  # daily price, for the portfolio's value over time
     trend: tuple[float, ...]
     changes: tuple[tuple[str, float | None], ...]  # per key of PERIODS
+    sales_price: float | None  # pricing.recent_sales_price(), when nothing is listed
 
 
 def item_prices(history: pd.DataFrame, publisher_fee: float = PUBLISHER_FEE_RATE) -> ItemPrices:
     views = price_views(history) if not history.empty else None
     prices = views.prices if views else pd.Series(dtype=float)
     return ItemPrices(
+        sales_price=recent_sales_price(views) if views else None,
         metrics=compute_metrics(history, views, publisher_fee),
         daily=views.daily["price"] if views else None,
         trend=tuple(recent_trend(history, views=views)),
@@ -133,6 +137,8 @@ class Position:
     pinned: bool = False
     appid: int = field(kw_only=True)
     name_color: str | None = None
+    # "listing" (the cheapest listing now) or "sales" (nothing listed: recent sales).
+    price_source: PriceSource | None = None
     # Price change per period key of PERIODS.
     changes: tuple[tuple[str, float | None], ...] = ()
 
@@ -152,7 +158,9 @@ class Portfolio:
     value_history: pd.Series  # daily, USD
 
 
-def value_positions(inputs: Sequence[PositionInput]) -> Portfolio:
+def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None) -> Portfolio:
+    """Price every position at its item's current price (pricing.quote)."""
+    now = now or datetime.now(UTC)
     rows = []
     dailies: dict[int, pd.Series] = {}
     for p in inputs:
@@ -160,8 +168,13 @@ def value_positions(inputs: Sequence[PositionInput]) -> Portfolio:
         if computed.daily is not None:
             dailies[p.holding_id] = computed.daily
         metrics = computed.metrics
-        price = metrics.last_price if metrics else None
-        unit_proceeds = metrics.proceeds_after_fee if metrics else None
+        current = quote(p.listing, computed.sales_price, now)
+        price = current.price if current else None
+        unit_proceeds = (
+            seller_proceeds(round(price * 100), p.publisher_fee) / 100
+            if price is not None
+            else None
+        )
         cost = float(p.buy_price_usd) * p.quantity if p.buy_price_usd is not None else None
         proceeds = unit_proceeds * p.quantity if unit_proceeds is not None else None
         rows.append(
@@ -174,6 +187,7 @@ def value_positions(inputs: Sequence[PositionInput]) -> Portfolio:
                 proceeds - cost if proceeds is not None and cost is not None else None,
                 metrics,
                 computed,
+                current.source if current else None,
             )
         )
     total = sum(value for _, _, value, *_ in rows if value is not None)
@@ -202,8 +216,9 @@ def value_positions(inputs: Sequence[PositionInput]) -> Portfolio:
             appid=p.appid,
             name_color=p.name_color,
             changes=computed.changes,
+            price_source=source,
         )
-        for p, price, value, proceeds, cost, pnl, metrics, computed in rows
+        for p, price, value, proceeds, cost, pnl, metrics, computed, source in rows
     ]
     positions.sort(key=lambda pos: pos.value or 0, reverse=True)
     with_pnl = [pos for pos in positions if pos.pnl is not None]
@@ -314,6 +329,7 @@ async def _compute_portfolio(sessions: SessionMaker, appid: int | None = None) -
             name_color=item.name_color,
             publisher_fee=fees[item.id],
             prices=_item_cache[item.id][1],
+            listing=listing_of(item),
         )
         for holding, item in holdings
     ]

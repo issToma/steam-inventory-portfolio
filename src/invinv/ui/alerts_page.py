@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 
 from nicegui import ui
@@ -8,6 +9,7 @@ from invinv.core.parsers import SearchResult
 from invinv.db import repo
 from invinv.db.tables import AlertRule
 from invinv.i18n import current_language, tr
+from invinv.pricing import listing_of
 from invinv.runtime import runtime
 from invinv.ui.common import icon_url, rarity_color, time_ago
 from invinv.ui.games import searchable_games
@@ -39,7 +41,7 @@ async def _current_reading(market_hash_name: str, appid: int) -> alerts.Reading 
             return None
         points = await repo.load_history(session, item.id)
         fx = await repo.latest_fx(session)
-    return alerts.reading_from(points, fx)
+    return alerts.reading_from(points, fx, listing_of(item), datetime.now(UTC))
 
 
 def alert_form(

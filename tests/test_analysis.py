@@ -47,7 +47,8 @@ def test_daily_series_prefers_steam_daily_points_and_aggregates_hourly_ones() ->
 
     daily = daily_series(frame)
 
-    assert list(daily["price"]) == [10, 17.5]
+    # Day 2: one sale at 10 and three at 20; the weighted median is 20.
+    assert list(daily["price"]) == [10, 20]
     assert list(daily["volume"]) == [5, 4]
 
 

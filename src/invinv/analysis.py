@@ -104,18 +104,31 @@ def hourly_series(frame: pd.DataFrame) -> pd.DataFrame:
 
 def daily_series(frame: pd.DataFrame, hourly: pd.DataFrame | None = None) -> pd.DataFrame:
     """One row per day: Steam's daily points, plus hourly points aggregated for the days
-    Steam only has hourly data for (price is volume-weighted, volume is summed).
-    `hourly` is hourly_series(frame) when already built."""
+    Steam only has hourly data for (price is the volume-weighted median, so one odd trade
+    cannot move the day; volume is summed). `hourly` is hourly_series(frame) if built."""
     daily = frame[frame["resolution"] == "day"].set_index("ts")[["price", "volume"]]
     if hourly is None:
         hourly = hourly_series(frame)
     if not hourly.empty:
-        weighted = (hourly["price"] * hourly["volume"]).resample("D").sum()
         volume = hourly["volume"].resample("D").sum()
-        from_hourly = pd.DataFrame({"price": weighted / volume, "volume": volume}).dropna()
+        from_hourly = pd.DataFrame(
+            {"price": _daily_weighted_median(hourly), "volume": volume}
+        ).dropna()
+        from_hourly = from_hourly[from_hourly["volume"] > 0]
         from_hourly = from_hourly[~from_hourly.index.isin(daily.index)]
         daily = pd.concat([daily, from_hourly])
     return daily.sort_index()
+
+
+def _daily_weighted_median(hourly: pd.DataFrame) -> pd.Series:
+    """Per day, the price at which half of the day's sales were cheaper."""
+    points = hourly.assign(day=pd.DatetimeIndex(hourly.index).floor("D"))
+    points = points.sort_values(["day", "price"])
+    by_day = points.groupby("day")["volume"]
+    reached = by_day.cumsum() >= by_day.transform("sum") / 2
+    median = points[reached].groupby("day")["price"].first()
+    median.index = pd.DatetimeIndex(median.index)
+    return median
 
 
 def _change(series: pd.Series, last_ts: pd.Timestamp, period: timedelta) -> float | None:

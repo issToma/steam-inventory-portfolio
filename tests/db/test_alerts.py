@@ -23,9 +23,10 @@ async def add_rule(session: AsyncSession, kind: str = "above", threshold: str = 
 
 
 async def set_price(session: AsyncSession, price: str, at: datetime = NOW) -> int:
+    # 20 sales in the hour: without a listing, the price is the median of the last 20 sales.
     item = await repo.get_item_by_name(session, NAME, 730)
     assert item is not None
-    history = PriceHistory(1, [HistoryPoint(at, "hour", Decimal(price), 10)])
+    history = PriceHistory(1, [HistoryPoint(at, "hour", Decimal(price), 20)])
     await repo.save_history(session, item.id, history)
     return item.id
 

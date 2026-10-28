@@ -17,6 +17,7 @@ from invinv.core.parsers import (
     InventoryItem,
     ItemTraits,
     PriceHistory,
+    PriceOverview,
     Resolution,
     SearchResult,
     SteamProfile,
@@ -41,6 +42,8 @@ JOB_HISTORY = "history"
 JOB_GROUP = "group"
 JOB_INVENTORY = "inventory"
 JOB_FX = "fx"
+# The cheapest listing of one item ("<appid>:<market_hash_name>"), its current price.
+JOB_LISTING = "listing"
 
 
 def item_target(appid: int, key: str) -> str:
@@ -137,7 +140,7 @@ async def _drop_item_jobs(session: AsyncSession, item: Item) -> None:
     """Stop collecting an item nobody tracks; group jobs stop on their own when empty."""
     await session.execute(
         delete(FetchJob).where(
-            FetchJob.kind.in_([JOB_RESOLVE, JOB_HISTORY]),
+            FetchJob.kind.in_([JOB_RESOLVE, JOB_HISTORY, JOB_LISTING]),
             FetchJob.target == item_target(item.appid, item.market_hash_name),
         )
     )
@@ -155,6 +158,9 @@ async def ensure_history_job(session: AsyncSession, item: Item) -> None:
         await delete_job(session, JOB_HISTORY, by_name)
     else:
         await ensure_job(session, JOB_HISTORY, by_name, priority=priority)
+    # The current price comes first: it values the item; the history draws its charts.
+    listing_priority = priority + scheduling.LISTING_PRIORITY_BONUS
+    await ensure_job(session, JOB_LISTING, by_name, priority=listing_priority)
 
 
 def _tracked_condition() -> ColumnElement[bool]:
@@ -843,6 +849,7 @@ async def portfolio_fingerprint(session: AsyncSession) -> tuple[object, ...]:
             SELECT
                 (SELECT max(fetched_at) FROM price_history),
                 (SELECT max(day) FROM fx_rates),
+                (SELECT max(listing_checked_at) FROM items),
                 (SELECT md5(coalesce(string_agg(
                     concat_ws(
                         ':', id, owner, quantity, buy_price_usd, removed_at, location, pinned
@@ -854,6 +861,22 @@ async def portfolio_fingerprint(session: AsyncSession) -> tuple[object, ...]:
         )
     )
     return tuple(result.one())
+
+
+async def save_listing(
+    session: AsyncSession, item_id: int, overview: PriceOverview, checked_at: datetime
+) -> None:
+    """Store priceoverview's answer, asked in USD."""
+    await session.execute(
+        update(Item)
+        .where(Item.id == item_id)
+        .values(
+            lowest_listing_usd=overview.lowest_price,
+            median_24h_usd=overview.median_price,
+            sales_24h=overview.volume,
+            listing_checked_at=checked_at,
+        )
+    )
 
 
 async def history_stamps(session: AsyncSession, item_ids: list[int]) -> dict[int, datetime]:

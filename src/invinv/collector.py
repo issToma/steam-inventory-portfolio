@@ -32,6 +32,8 @@ NOT_FOUND_RETRY = timedelta(days=7)
 PRIVATE_INVENTORY_RETRY = timedelta(hours=1)
 # Name and avatar change rarely; refresh them along with one inventory sync a day.
 PROFILE_REFRESH = timedelta(days=1)
+# Price histories of items nobody watches: for charts and period changes only.
+HISTORY_REFRESH = timedelta(days=1)
 
 
 class JobFailedError(Exception):
@@ -98,6 +100,7 @@ class Collector:
             repo.JOB_GROUP: self._group,
             repo.JOB_INVENTORY: self._inventory,
             repo.JOB_FX: self._fx,
+            repo.JOB_LISTING: self._listing,
         }
         handler = handlers.get(job.kind)
         try:
@@ -172,7 +175,7 @@ class Collector:
             await alerts.check_items(session, [item.id], self._now())
             await session.commit()
         log.info("stored %d points for %r", len(history.points), job.target)
-        return await self._next_refresh([(item.id, history)])
+        return await self._next_history_refresh([item.id])
 
     async def _group(self, job: FetchJob) -> datetime | None:
         appid, group = repo.split_target(job.target)
@@ -194,7 +197,7 @@ class Collector:
                     await repo.ensure_job(session, repo.JOB_FX, str(single.currency))
                 await alerts.check_items(session, [item.id], self._now())
                 await session.commit()
-            next_run = await self._next_refresh([(item.id, single)])
+            next_run = await self._next_history_refresh([item.id])
             log.info(
                 "stored history for %r; next refresh %s",
                 item.market_hash_name,
@@ -243,7 +246,7 @@ class Collector:
                 await repo.ensure_job(session, repo.JOB_FX, str(currency))
             await alerts.check_items(session, [item_id for item_id, _ in fetched], self._now())
             await session.commit()
-        next_run = await self._next_refresh(fetched)
+        next_run = await self._next_history_refresh([item_id for item_id, _ in fetched])
         log.info(
             "stored history for %d item(s) from group %s; next refresh %s",
             len(items),
@@ -252,20 +255,37 @@ class Collector:
         )
         return next_run
 
-    async def _next_refresh(self, fetched: list[tuple[int, PriceHistory]]) -> datetime:
-        """Refresh valuable, liquid or watched items hourly and the rest less often."""
+    async def _next_history_refresh(self, item_ids: list[int]) -> datetime:
+        """Watched items keep a fresh history for their charts and change alerts; for the
+        rest a daily refresh is enough, since their price comes from the listing job."""
         async with self._sessions() as session:
-            ids = [item_id for item_id, _ in fetched]
-            quantities = await repo.held_quantities(session, ids)
-            watched = await repo.any_watched(session, ids)
-            fx = await repo.latest_fx(session)
+            watched = await repo.any_watched(session, item_ids)
+        if watched:
+            return self._now() + timedelta(minutes=self._settings.history_refresh_minutes)
+        return self._now() + HISTORY_REFRESH
+
+    async def _listing(self, job: FetchJob) -> datetime | None:
+        """The cheapest listing of an item, asked in USD: its current price."""
+        appid, name = repo.split_target(job.target)
+        async with self._sessions() as session:
+            item = await repo.get_item_by_name(session, name, appid)
+            if item is None or not await repo.is_tracked(session, item.id):
+                return None
+            quantity = (await repo.held_quantities(session, [item.id])).get(item.id, 0)
+            watched = await repo.any_watched(session, [item.id])
+        overview = await self._market.price_overview(name, USD, appid)
         now = self._now()
+        async with self._sessions() as session:
+            await repo.save_listing(session, item.id, overview, now)
+            await alerts.check_items(session, [item.id], now)
+            await session.commit()
         importance = scheduling.Importance(
             watched=watched,
-            held_value_usd=scheduling.held_value_usd(
-                [(quantities[i], h) for i, h in fetched if i in quantities], fx
-            ),
-            sales_per_day=max((scheduling.sales_per_day(h, now) for _, h in fetched), default=0.0),
+            # Nothing listed: nothing to watch closely until someone lists it.
+            held_value_usd=float(overview.lowest_price) * quantity
+            if overview.lowest_price is not None
+            else 0.0,
+            sales_per_day=float(overview.volume or 0),
         )
         base = timedelta(minutes=self._settings.history_refresh_minutes)
         return now + scheduling.refresh_interval(importance, base)

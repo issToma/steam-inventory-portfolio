@@ -3,10 +3,11 @@ from typing import Any
 
 from nicegui import ui
 
-from invinv.analysis import MissingRateError, compute_metrics, recent_trend, to_frame
+from invinv.analysis import MissingRateError, compute_metrics, price_views, recent_trend, to_frame
 from invinv.core.parsers import SearchResult
 from invinv.db import repo
 from invinv.i18n import tr
+from invinv.pricing import listing_of, quote, recent_sales_price
 from invinv.runtime import runtime
 from invinv.ui.common import (
     NAME_CELL_SLOT,
@@ -58,16 +59,23 @@ async def _rows() -> list[dict[str, Any]]:
             points = await repo.load_history(session, item.id, since)
             try:
                 frame = to_frame(points, fx)
-                metrics = compute_metrics(frame)
+                views = price_views(frame) if not frame.empty else None
+                metrics = compute_metrics(frame, views)
+                current = quote(
+                    listing_of(item),
+                    recent_sales_price(views) if views else None,
+                    datetime.now(UTC),
+                )
                 trend = recent_trend(frame)
                 row["spark"] = sparkline_points(trend)
                 row["spark_up"] = len(trend) < 2 or trend[-1] >= trend[0]
             except MissingRateError:
                 metrics = None
+                current = None
                 row["status"] = tr("waiting for exchange rate")
             if metrics is not None:
                 row |= {
-                    "price": fmt_usd(metrics.last_price),
+                    "price": fmt_usd(current.price if current else metrics.last_price),
                     "change_24h": fmt_pct(metrics.change_24h),
                     "change_7d": fmt_pct(metrics.change_7d),
                     "change_30d": fmt_pct(metrics.change_30d),
