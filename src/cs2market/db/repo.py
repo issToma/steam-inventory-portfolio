@@ -6,7 +6,7 @@ from decimal import Decimal
 from itertools import batched
 from typing import Any, cast
 
-from sqlalchemy import ColumnElement, and_, case, delete, func, or_, select, update
+from sqlalchemy import ColumnElement, and_, case, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -128,6 +128,10 @@ async def tracked_items_in_group(session: AsyncSession, bucket_group_id: str) ->
         select(Item).where(Item.bucket_group_id == bucket_group_id, _tracked_condition())
     )
     return list(result)
+
+
+async def in_watchlist(session: AsyncSession, item_id: int) -> bool:
+    return await session.get(WatchlistEntry, item_id) is not None
 
 
 async def is_tracked(session: AsyncSession, item_id: int) -> bool:
@@ -506,7 +510,10 @@ async def sync_inventory(session: AsyncSession, items: list[InventoryItem]) -> i
         await session.execute(
             stmt.on_conflict_do_update(
                 index_elements=[Holding.item_id],
-                index_where=Holding.source == SOURCE_INVENTORY,
+                # A literal, not a bound parameter: once Postgres switches the prepared
+                # statement to a generic plan it cannot match a parameter to the partial
+                # unique index, and the insert fails from the sixth row on.
+                index_where=text(f"source = '{SOURCE_INVENTORY}'"),
                 set_={"quantity": stmt.excluded.quantity, "removed_at": None},
             )
         )

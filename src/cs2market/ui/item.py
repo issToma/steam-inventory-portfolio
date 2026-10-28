@@ -238,10 +238,18 @@ def register() -> None:
                 price_input.on_value_change(update_fee)
                 update_fee()
 
-            async def remove() -> None:
-                async with runtime.sessions() as session:
-                    await repo.remove_from_watchlist(session, item_id)
-                    await session.commit()
-                ui.navigate.to("/")
+            async with runtime.sessions() as session:
+                watched = await repo.in_watchlist(session, item_id)
 
-            ui.button("Remove from watchlist", on_click=remove).props("flat color=negative")
+            async def toggle_watch() -> None:
+                async with runtime.sessions() as session:
+                    if watched:
+                        await repo.remove_from_watchlist(session, item_id)
+                    else:
+                        await repo.add_to_watchlist(session, item.market_hash_name)
+                    await session.commit()
+                ui.navigate.reload()
+
+            ui.button(
+                "Remove from watchlist" if watched else "Add to watchlist", on_click=toggle_watch
+            ).props(f"flat color={'negative' if watched else 'primary'}")

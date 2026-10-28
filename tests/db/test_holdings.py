@@ -94,3 +94,12 @@ async def test_settings(session: AsyncSession) -> None:
     assert await repo.get_setting(session, repo.SETTING_STEAM_ID) == "76561198000000000"
     await repo.set_setting(session, repo.SETTING_STEAM_ID, None)
     assert await repo.get_setting(session, repo.SETTING_STEAM_ID) is None
+
+
+async def test_large_inventory_sync(session: AsyncSession) -> None:
+    # More rows than Postgres plans with custom plans before switching to a generic one.
+    items = [inv(f"Case {n}", group=f"G{n}") for n in range(12)]
+
+    assert await repo.sync_inventory(session, items) == 12
+    assert await repo.sync_inventory(session, items) == 12
+    assert len(await active(session)) == 12

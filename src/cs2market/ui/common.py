@@ -2,8 +2,10 @@ from nicegui import ui
 
 
 def header() -> None:
-    with ui.header().classes("items-center bg-slate-800"):
+    with ui.header().classes("items-center gap-6 bg-slate-800"):
         ui.link("cs2market", "/").classes("text-h6 text-white no-underline")
+        ui.link("Portfolio", "/").classes("text-white no-underline")
+        ui.link("Watchlist", "/watchlist").classes("text-white no-underline")
 
 
 def fmt_usd(value: float | None) -> str:
