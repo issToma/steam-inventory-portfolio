@@ -6,7 +6,13 @@ from decimal import Decimal
 
 import pandas as pd
 
-from cs2market.analysis import MissingRateError, compute_metrics, daily_series, to_frame
+from cs2market.analysis import (
+    MissingRateError,
+    compute_metrics,
+    daily_series,
+    recent_trend,
+    to_frame,
+)
 from cs2market.core.fees import seller_proceeds
 from cs2market.db import repo
 from cs2market.db.session import SessionMaker
@@ -22,6 +28,9 @@ class PositionInput:
     quantity: int
     buy_price_usd: Decimal | None
     history: pd.DataFrame  # to_frame() output, prices in USD
+    icon_url: str | None = None
+    rarity: str | None = None
+    quality: str | None = None
 
 
 @dataclass(frozen=True)
@@ -41,6 +50,10 @@ class Position:
     change_24h: float | None
     change_7d: float | None
     change_30d: float | None
+    icon_url: str | None = None
+    rarity: str | None = None
+    quality: str | None = None
+    trend: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -92,6 +105,10 @@ def value_positions(inputs: Sequence[PositionInput]) -> Portfolio:
             change_24h=metrics.change_24h if metrics else None,
             change_7d=metrics.change_7d if metrics else None,
             change_30d=metrics.change_30d if metrics else None,
+            icon_url=p.icon_url,
+            rarity=p.rarity,
+            quality=p.quality,
+            trend=tuple(recent_trend(p.history)),
         )
         for p, price, value, proceeds, cost, pnl, metrics in rows
     ]
@@ -146,6 +163,9 @@ async def load_portfolio(sessions: SessionMaker) -> Portfolio:
                 quantity=holding.quantity,
                 buy_price_usd=holding.buy_price_usd,
                 history=histories[item.id],
+                icon_url=item.icon_url,
+                rarity=item.rarity,
+                quality=item.quality,
             )
             for holding, item in holdings
         ]

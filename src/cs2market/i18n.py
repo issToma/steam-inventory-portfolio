@@ -292,6 +292,7 @@ RU: dict[str, str] = {
     "Listing price (buyer pays), $": "Цена лота (платит покупатель), $",
     "You receive {proceeds}, fees {fees}": "Вы получите {proceeds}, комиссия {fees}",
     "Remove from watchlist": "Убрать из watchlist",
+    "You hold {quantity} · worth {value}": "У вас {quantity} шт. · на сумму {value}",
     "Prices of this item are not collected yet. Add it to the watchlist or the portfolio and its full history arrives within a minute.": (
         "Цены этого предмета пока не собираются. Добавьте его в watchlist или в портфель, "
         "и полная история появится в течение минуты."

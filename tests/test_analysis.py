@@ -3,7 +3,13 @@ from decimal import Decimal
 
 import pytest
 
-from cs2market.analysis import MissingRateError, compute_metrics, daily_series, to_frame
+from cs2market.analysis import (
+    MissingRateError,
+    compute_metrics,
+    daily_series,
+    recent_trend,
+    to_frame,
+)
 from cs2market.core.parsers import Resolution
 from cs2market.db.repo import StoredPoint
 
@@ -64,3 +70,14 @@ def test_metrics() -> None:
 
 def test_metrics_of_empty_history() -> None:
     assert compute_metrics(to_frame([], {})) is None
+
+
+def test_recent_trend_averages_the_last_week() -> None:
+    points = [point(START + timedelta(days=d), "1") for d in range(20)]
+    points += [
+        point(START + timedelta(days=20, hours=h), str(10 + h // 6), resolution="hour")
+        for h in range(12)
+    ]
+
+    assert recent_trend(to_frame(points, {})) == [10, 11]
+    assert recent_trend(to_frame([], {})) == []

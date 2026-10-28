@@ -9,7 +9,16 @@ from cs2market.db import repo
 from cs2market.i18n import tr
 from cs2market.portfolio import Portfolio, Position, load_portfolio
 from cs2market.runtime import runtime
-from cs2market.ui.common import fmt_pct, fmt_usd, pct_color
+from cs2market.ui.common import (
+    NAME_CELL_SLOT,
+    SPARK_CELL_SLOT,
+    fmt_pct,
+    fmt_usd,
+    icon_url,
+    pct_color,
+    rarity_color,
+    sparkline_points,
+)
 from cs2market.ui.layout import echart_theme, page_frame
 from cs2market.ui.positions import DELETE, PositionForm, add_position, position_dialog
 from cs2market.ui.search_box import search_box
@@ -37,6 +46,7 @@ def columns() -> list[dict[str, Any]]:
         {"name": "share", "label": tr("Share"), "field": "share", "align": "right"},
         {"name": "change_24h", "label": "24h", "field": "change_24h", "align": "right"},
         {"name": "change_7d", "label": "7d", "field": "change_7d", "align": "right"},
+        {"name": "trend", "label": "", "field": "spark", "align": "center"},
         {"name": "pnl", "label": tr("P&L"), "field": "pnl", "align": "right"},
         {"name": "actions", "label": "", "field": "id", "align": "right"},
     ]
@@ -47,6 +57,10 @@ def _row(p: Position) -> dict[str, Any]:
         "id": p.holding_id,
         "item_id": p.item_id,
         "name": p.name,
+        "icon": icon_url(p.icon_url),
+        "color": rarity_color(p.rarity, p.quality),
+        "spark": sparkline_points(list(p.trend)),
+        "spark_up": len(p.trend) < 2 or p.trend[-1] >= p.trend[0],
         "where": tr("Inventory")
         if p.source == repo.SOURCE_INVENTORY
         else (p.location or tr("Manual")),
@@ -111,6 +125,8 @@ def register() -> None:
             # --- Positions ---------------------------------------------------------------
             ui.label(tr("Positions")).classes("text-h6")
             table = ui.table(columns=columns(), rows=[], row_key="id").classes("w-full")
+            table.add_slot("body-cell-name", NAME_CELL_SLOT)
+            table.add_slot("body-cell-trend", SPARK_CELL_SLOT)
             table.add_slot(
                 "body-cell-actions",
                 '<q-td :props="props">'

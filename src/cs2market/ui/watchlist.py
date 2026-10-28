@@ -3,12 +3,20 @@ from typing import Any
 
 from nicegui import ui
 
-from cs2market.analysis import MissingRateError, compute_metrics, to_frame
+from cs2market.analysis import MissingRateError, compute_metrics, recent_trend, to_frame
 from cs2market.core.parsers import SearchResult
 from cs2market.db import repo
 from cs2market.i18n import tr
 from cs2market.runtime import runtime
-from cs2market.ui.common import fmt_pct, fmt_usd
+from cs2market.ui.common import (
+    NAME_CELL_SLOT,
+    SPARK_CELL_SLOT,
+    fmt_pct,
+    fmt_usd,
+    icon_url,
+    rarity_color,
+    sparkline_points,
+)
 from cs2market.ui.layout import page_frame
 from cs2market.ui.search_box import search_box
 
@@ -23,6 +31,7 @@ def columns() -> list[dict[str, Any]]:
         {"name": "change_24h", "label": "24h", "field": "change_24h", "align": "right"},
         {"name": "change_7d", "label": "7d", "field": "change_7d", "align": "right"},
         {"name": "change_30d", "label": "30d", "field": "change_30d", "align": "right"},
+        {"name": "trend", "label": "", "field": "spark", "align": "center"},
         {"name": "volume", "label": tr("Sales/day"), "field": "volume", "align": "right"},
         {"name": "status", "label": tr("Status"), "field": "status", "align": "left"},
     ]
@@ -36,11 +45,20 @@ async def _rows() -> list[dict[str, Any]]:
         jobs = await repo.jobs_for(session, items)
         rows = []
         for item in items:
-            row: dict[str, Any] = {"id": item.id, "name": item.market_hash_name}
+            row: dict[str, Any] = {
+                "id": item.id,
+                "name": item.market_hash_name,
+                "icon": icon_url(item.icon_url),
+                "color": rarity_color(item.rarity, item.quality),
+            }
             job = jobs.get(item.id)
             points = await repo.load_history(session, item.id, since)
             try:
-                metrics = compute_metrics(to_frame(points, fx))
+                frame = to_frame(points, fx)
+                metrics = compute_metrics(frame)
+                trend = recent_trend(frame)
+                row["spark"] = sparkline_points(trend)
+                row["spark_up"] = len(trend) < 2 or trend[-1] >= trend[0]
             except MissingRateError:
                 metrics = None
                 row["status"] = tr("waiting for exchange rate")
@@ -106,6 +124,8 @@ def register() -> None:
                 dialog.open()
 
             table = ui.table(columns=columns(), rows=await _rows(), row_key="id").classes("w-full")
+            table.add_slot("body-cell-name", NAME_CELL_SLOT)
+            table.add_slot("body-cell-trend", SPARK_CELL_SLOT)
             table.on("rowClick", lambda e: ui.navigate.to(f"/item/{e.args[1]['id']}"))
 
             async def refresh() -> None:

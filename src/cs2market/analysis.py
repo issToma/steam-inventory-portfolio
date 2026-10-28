@@ -111,3 +111,13 @@ def sma(series: pd.Series, window: int) -> pd.Series:
 
 def ema(series: pd.Series, window: int) -> pd.Series:
     return series.ewm(span=window, adjust=False).mean()
+
+
+def recent_trend(frame: pd.DataFrame, days: int = 7, bucket: str = "6h") -> list[float]:
+    """Prices of the last few days, averaged per bucket, for a small trend line."""
+    if frame.empty:
+        return []
+    hourly = hourly_series(frame)["price"]
+    series = hourly if not hourly.empty else daily_series(frame)["price"]
+    recent = series[series.index >= series.index[-1] - timedelta(days=days)]
+    return [float(v) for v in recent.resample(bucket).mean().dropna()]

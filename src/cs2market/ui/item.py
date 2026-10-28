@@ -19,7 +19,7 @@ from cs2market.core.fees import seller_proceeds
 from cs2market.db import repo
 from cs2market.i18n import tr
 from cs2market.runtime import runtime
-from cs2market.ui.common import fmt_pct, fmt_usd, pct_color
+from cs2market.ui.common import fmt_pct, fmt_usd, icon_url, pct_color, rarity_color
 from cs2market.ui.layout import echart_theme, page_frame
 from cs2market.ui.positions import add_position
 
@@ -152,17 +152,27 @@ def register() -> None:
             fx = await repo.latest_fx(session)
             tracked = await repo.is_tracked(session, item_id) if item else False
             watched = await repo.in_watchlist(session, item_id) if item else False
+            held = (await repo.held_quantities(session, [item_id])).get(item_id, 0) if item else 0
 
         with page_frame("item"):
             if item is None:
                 ui.label(tr("Item not found."))
                 return
-            ui.label(item.market_hash_name).classes("text-h5")
-            traits = " · ".join(
-                t for t in (item.quality, item.rarity, item.item_type, item.exterior) if t
-            )
-            if traits:
-                ui.label(traits).classes("text-muted")
+            with ui.row().classes("items-center no-wrap gap-4"):
+                image = icon_url(item.icon_url, "256fx192f")
+                if image:
+                    ui.image(image).classes("w-40 h-28").props("fit=contain")
+                with ui.column().classes("gap-1"):
+                    color = rarity_color(item.rarity, item.quality)
+                    ui.label(item.market_hash_name).classes("text-h5").style(
+                        f"color: {color}" if color else ""
+                    )
+                    traits = " · ".join(
+                        t for t in (item.item_type, item.exterior, item.collection) if t
+                    )
+                    if traits:
+                        ui.label(traits).classes("text-muted")
+                    holding_line = ui.label().classes("text-subtitle2")
 
             async def toggle_watch() -> None:
                 async with runtime.sessions() as session:
@@ -212,6 +222,13 @@ def register() -> None:
                     )
                 ).classes("text-muted")
                 return
+
+            if held:
+                holding_line.text = tr(
+                    "You hold {quantity} · worth {value}",
+                    quantity=held,
+                    value=fmt_usd(held * metrics.last_price),
+                )
 
             with ui.row().classes("gap-3"):
                 _stat(tr("Price"), fmt_usd(metrics.last_price))

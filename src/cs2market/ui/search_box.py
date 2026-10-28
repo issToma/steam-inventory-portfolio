@@ -9,11 +9,16 @@ from typing import cast
 from nicegui import ui
 
 from cs2market.core.http import SteamBusyError, SteamError
-from cs2market.core.parsers import SearchResult, SteamFormatError, market_hash_name_from_input
+from cs2market.core.parsers import (
+    SearchResult,
+    SteamFormatError,
+    market_hash_name_from_input,
+    parse_item_traits,
+)
 from cs2market.core.steam import SKIN_KINDS, Exterior, ItemKind, Quality
 from cs2market.i18n import tr, tr_n
 from cs2market.search import SearchQuery, search_local, search_steam
-from cs2market.ui.common import fmt_usd
+from cs2market.ui.common import fmt_usd, rarity_color
 
 ICON_URL = "https://community.akamai.steamstatic.com/economy/image/{}/62fx62f"
 
@@ -97,8 +102,10 @@ def search_box(
                 ):
                     if result.icon_url:
                         ui.image(ICON_URL.format(result.icon_url)).classes("w-12 h-9")
+                    traits = parse_item_traits(result.market_hash_name, result.item_type)
+                    color = rarity_color(traits.rarity, traits.quality)
                     with ui.column().classes("grow gap-0"):
-                        ui.label(result.market_hash_name)
+                        ui.label(result.market_hash_name).style(f"color: {color}" if color else "")
                         ui.label(result.item_type).classes("text-caption text-muted")
                     if result.sell_price_usd_cents is not None:
                         ui.label(
