@@ -287,8 +287,8 @@ RU: dict[str, str] = {
         "не сразу."
     ),
     "Checking your inventory…": "Проверяем инвентарь…",
-    "Disconnected; inventory items were removed from the portfolio.": (
-        "Отключено; предметы инвентаря убраны из портфеля."
+    "Disconnected. Its positions are kept and come back if you connect it again.": (
+        "Отключено. Позиции аккаунта сохранены и вернутся, если подключить его снова."
     ),
     # Watchlist
     "Items you follow without owning them.": "Предметы, за которыми вы следите, не владея ими.",

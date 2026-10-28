@@ -162,3 +162,55 @@ async def test_game_fee_from_the_inventory_is_stored(session: AsyncSession) -> N
     fees = {item.market_hash_name: item.publisher_fee for _, item in holdings}
 
     assert fees == {"Hoodie": Decimal("0.0500"), "Kilowatt Case": None}
+
+
+MAIN = "76561198000000001"
+TWIN = "76561198000000002"
+
+
+async def test_switching_accounts_hides_and_restores_positions(session: AsyncSession) -> None:
+    await repo.set_inventory_owner(session, MAIN)
+    await repo.sync_inventory(session, [inv("Kilowatt Case"), inv("Revolution Case")])
+    await repo.pin_all(session, True)
+    await repo.add_manual_holding(session, "Recoil Case", quantity=3, location="Storage #1")
+
+    await repo.set_inventory_owner(session, TWIN)
+    assert await active(session) == {}
+    await repo.sync_inventory(session, [inv("Kilowatt Case")])
+    assert await active(session) == {"Kilowatt Case": ("inventory", 1)}
+
+    await repo.set_inventory_owner(session, MAIN)
+    assert await active(session) == {
+        "Kilowatt Case": ("inventory", 1),
+        "Revolution Case": ("inventory", 1),
+        "Recoil Case": ("manual", 3),
+    }
+    assert all(h.pinned for h, _ in await repo.active_holdings(session) if h.source == "inventory")
+
+
+async def test_hidden_positions_stop_their_collection(session: AsyncSession) -> None:
+    await repo.set_inventory_owner(session, MAIN)
+    await repo.add_manual_holding(session, "Recoil Case", quantity=1)
+    item = await repo.get_item_by_name(session, "Recoil Case")
+    assert item is not None
+
+    await repo.set_inventory_owner(session, TWIN)
+    assert not await repo.is_tracked(session, item.id)
+    assert ("resolve", "730:Recoil Case") not in await jobs(session)
+
+    await repo.set_inventory_owner(session, MAIN)
+    assert await repo.is_tracked(session, item.id)
+    assert ("resolve", "730:Recoil Case") in await jobs(session)
+
+
+async def test_positions_made_without_an_account_go_to_the_first_one(
+    session: AsyncSession,
+) -> None:
+    await repo.add_manual_holding(session, "Recoil Case", quantity=1)
+
+    await repo.set_inventory_owner(session, MAIN)
+    assert await active(session) == {"Recoil Case": ("manual", 1)}
+    await repo.set_inventory_owner(session, None)
+    assert await active(session) == {}
+    await repo.set_inventory_owner(session, MAIN)
+    assert await active(session) == {"Recoil Case": ("manual", 1)}

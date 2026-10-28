@@ -149,8 +149,14 @@ async def ensure_history_job(session: AsyncSession, item: Item) -> None:
 
 def _tracked_condition() -> ColumnElement[bool]:
     """An item is tracked when it is watched or in an active portfolio position."""
-    held = select(Holding.id).where(Holding.item_id == Item.id, Holding.removed_at.is_(None))
+    held = select(Holding.id).where(Holding.item_id == Item.id, _active_holding())
     return or_(_watched_condition(), held.exists())
+
+
+def _active_holding() -> ColumnElement[bool]:
+    """A position in the portfolio now: not removed, and of the connected account."""
+    owner = select(AppSetting.value).where(AppSetting.key == SETTING_STEAM_ID).scalar_subquery()
+    return and_(Holding.removed_at.is_(None), Holding.owner.is_not_distinct_from(owner))
 
 
 def _watched_condition() -> ColumnElement[bool]:
@@ -477,6 +483,7 @@ async def add_manual_holding(
 ) -> Holding:
     item = await _track(session, market_hash_name, found, appid)
     holding = Holding(
+        owner=await get_setting(session, SETTING_STEAM_ID),
         item_id=item.id,
         source=SOURCE_MANUAL,
         location=location or None,
@@ -525,7 +532,7 @@ async def active_holdings(session: AsyncSession) -> list[tuple[Holding, Item]]:
     result = await session.execute(
         select(Holding, Item)
         .join(Item, Holding.item_id == Item.id)
-        .where(Holding.removed_at.is_(None))
+        .where(_active_holding())
         .order_by(Holding.source, Item.market_hash_name)
         # Re-read rows the session already holds: the inventory sync updates them with
         # bulk statements that bypass the identity map.
@@ -544,6 +551,7 @@ async def sync_inventory(
     Positions of the games in `untouched` (say, one whose inventory failed to load) are left
     as they are instead of being removed.
     """
+    owner = await get_setting(session, SETTING_STEAM_ID)
     quantities: dict[tuple[int, str], int] = {}
     details: dict[tuple[int, str], InventoryItem] = {}
     for entry in items:
@@ -587,11 +595,15 @@ async def sync_inventory(
             item.publisher_fee = Decimal(str(entry.publisher_fee))
         present.add(item.id)
         stmt = insert(Holding).values(
-            item_id=item.id, source=SOURCE_INVENTORY, quantity=quantity, removed_at=None
+            owner=owner,
+            item_id=item.id,
+            source=SOURCE_INVENTORY,
+            quantity=quantity,
+            removed_at=None,
         )
         await session.execute(
             stmt.on_conflict_do_update(
-                index_elements=[Holding.item_id],
+                index_elements=[Holding.owner, Holding.item_id],
                 # A literal, not a bound parameter: once Postgres switches the prepared
                 # statement to a generic plan it cannot match a parameter to the partial
                 # unique index, and the insert fails from the sixth row on.
@@ -609,7 +621,7 @@ async def sync_inventory(
 
     stale = select(Holding).where(
         Holding.source == SOURCE_INVENTORY,
-        Holding.removed_at.is_(None),
+        _active_holding(),
         Holding.pinned.is_(False),
         Holding.item_id.not_in(present),
     )
@@ -656,28 +668,43 @@ async def get_job(session: AsyncSession, kind: str, target: str) -> FetchJob | N
 
 
 async def set_inventory_owner(session: AsyncSession, steam_id64: str | None) -> None:
-    """Import the inventory of another account (or stop importing) from now on.
+    """Connect another account (or none): the portfolio shows that account's positions.
 
-    Positions of the previous account disappear at the next sync, which marks every
-    inventory position missing from the new inventory as removed.
+    The previous account's positions stay in the database, hidden, and come back as they
+    were when it is connected again. Positions made with no account connected go to the
+    first account connected.
     """
     previous = await get_setting(session, SETTING_STEAM_ID)
-    if previous and previous != steam_id64:
+    if previous == steam_id64:
+        if steam_id64:
+            await run_job_now(session, JOB_INVENTORY, steam_id64)
+        return
+    hidden = [item for _, item in await active_holdings(session)]
+    if previous:
         await delete_job(session, JOB_INVENTORY, previous)
         await set_setting(session, SETTING_PROFILE, None)
         await set_setting(session, SETTING_INVENTORY_POSITIONS, None)
+    elif steam_id64:
+        await session.execute(
+            update(Holding).where(Holding.owner.is_(None)).values(owner=steam_id64)
+        )
     await set_setting(session, SETTING_STEAM_ID, steam_id64)
+    await session.flush()
+    # Collect prices for the positions now shown, and stop for the ones now hidden.
+    for _, item in await active_holdings(session):
+        await _track(session, item.market_hash_name, None, item.appid)
+    for item in hidden:
+        if not await is_tracked(session, item.id):
+            await _drop_item_jobs(session, item)
     if steam_id64:
         await run_job_now(session, JOB_INVENTORY, steam_id64)
-    else:
-        await sync_inventory(session, [])
 
 
 async def held_quantities(session: AsyncSession, item_ids: list[int]) -> dict[int, int]:
     """Total quantity per item over all active positions."""
     result = await session.execute(
         select(Holding.item_id, func.sum(Holding.quantity))
-        .where(Holding.item_id.in_(item_ids), Holding.removed_at.is_(None))
+        .where(Holding.item_id.in_(item_ids), _active_holding())
         .group_by(Holding.item_id)
     )
     return {item_id: int(quantity) for item_id, quantity in result}
@@ -768,9 +795,12 @@ async def portfolio_fingerprint(session: AsyncSession) -> tuple[object, ...]:
                 (SELECT max(fetched_at) FROM price_history),
                 (SELECT max(day) FROM fx_rates),
                 (SELECT md5(coalesce(string_agg(
-                    concat_ws(':', id, quantity, buy_price_usd, removed_at, location, pinned),
+                    concat_ws(
+                        ':', id, owner, quantity, buy_price_usd, removed_at, location, pinned
+                    ),
                     ',' ORDER BY id), ''))
-                 FROM holdings)
+                 FROM holdings),
+                (SELECT value FROM app_settings WHERE key = 'steam_id64')
             """
         )
     )
@@ -813,7 +843,7 @@ async def pin_all(session: AsyncSession, pinned: bool) -> None:
     """Pin or unpin every active inventory position."""
     await session.execute(
         update(Holding)
-        .where(Holding.source == SOURCE_INVENTORY, Holding.removed_at.is_(None))
+        .where(Holding.source == SOURCE_INVENTORY, _active_holding())
         .values(pinned=pinned)
     )
 

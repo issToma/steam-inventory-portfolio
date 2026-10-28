@@ -163,19 +163,27 @@ class Holding(Base):
     item leaves the inventory the row is marked removed instead of deleted, so a purchase
     price the user entered survives if the item comes back. Manual positions (for example
     storage unit contents, which the inventory does not show) are never touched by the sync.
+
+    Every position belongs to the Steam account (`owner`, a SteamID64) that was connected
+    when it was created; the portfolio shows only the connected account's positions, so
+    switching accounts hides the others' instead of removing them. Positions made while no
+    account was connected have no owner and go to the first account connected.
     """
 
     __tablename__ = "holdings"
     __table_args__ = (
         Index(
             "uq_holdings_inventory_item",
+            "owner",
             "item_id",
             unique=True,
             postgresql_where=text("source = 'inventory'"),
+            postgresql_nulls_not_distinct=True,
         ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner: Mapped[str | None] = mapped_column(Text)
     item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
     source: Mapped[str] = mapped_column(Text)
     location: Mapped[str | None] = mapped_column(Text)

@@ -171,7 +171,7 @@ class AccountCard:
         async with runtime.sessions() as session:
             await repo.set_inventory_owner(session, None)
             await session.commit()
-        ui.notify(tr("Disconnected; inventory items were removed from the portfolio."))
+        ui.notify(tr("Disconnected. Its positions are kept and come back if you connect it again."))
         await self._on_change()
 
     async def _start_editing(self) -> None:
