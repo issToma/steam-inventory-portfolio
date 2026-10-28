@@ -733,3 +733,19 @@ async def pin_all(session: AsyncSession, pinned: bool) -> None:
         .where(Holding.source == SOURCE_INVENTORY, Holding.removed_at.is_(None))
         .values(pinned=pinned)
     )
+
+
+async def fill_from_catalog(session: AsyncSession, item: Item) -> None:
+    """Copy what the catalog knows into an item's missing fields (icon, type, rarity, ...)."""
+    if item.icon_url and item.item_type and item.bucket_group_id:
+        return
+    entry = await session.get(CatalogEntry, item.market_hash_name)
+    if entry is None:
+        return
+    item.icon_url = item.icon_url or entry.icon_url
+    item.classid = item.classid or entry.classid
+    item.bucket_group_id = item.bucket_group_id or entry.bucket_group_id
+    if not item.item_type and entry.item_type:
+        traits = parse_item_traits(item.market_hash_name, entry.item_type)
+        item.item_type = entry.item_type
+        item.rarity, item.quality, item.exterior = traits.rarity, traits.quality, traits.exterior

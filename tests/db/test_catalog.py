@@ -70,3 +70,23 @@ async def test_upsert_keeps_known_price(session: AsyncSession) -> None:
     assert entry.sell_price_usd_cents == 3160
     assert entry.bucket_group_id == "G1"
     assert entry.category == "Rifle"
+
+
+async def test_fill_from_catalog_completes_missing_details(session: AsyncSession) -> None:
+    await repo.upsert_catalog(
+        session,
+        [
+            repo.CatalogRecord(
+                "StatTrak™ AK-47 | Redline (Minimal Wear)",
+                "StatTrak™ Classified Rifle",
+                bucket_group_id="G1",
+                icon_url="abc",
+            )
+        ],
+    )
+    item = await repo.get_or_create_item(session, "Unknown Sticker")
+    item.market_hash_name = "StatTrak™ AK-47 | Redline (Minimal Wear)"
+
+    await repo.fill_from_catalog(session, item)
+
+    assert (item.icon_url, item.bucket_group_id, item.rarity) == ("abc", "G1", "Classified")

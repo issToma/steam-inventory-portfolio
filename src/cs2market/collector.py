@@ -146,6 +146,9 @@ class Collector:
         history = await self._market.price_history(job.target)
         async with self._sessions() as session:
             await repo.save_history(session, item.id, history)
+            stored = await repo.get_item(session, item.id)
+            if stored is not None:
+                await repo.fill_from_catalog(session, stored)
             if history.currency != USD:
                 await repo.ensure_job(session, repo.JOB_FX, str(history.currency))
             await session.commit()
@@ -164,6 +167,9 @@ class Collector:
             single = await self._market.price_history(item.market_hash_name)
             async with self._sessions() as session:
                 await repo.save_history(session, item.id, single)
+                stored = await repo.get_item(session, item.id)
+                if stored is not None:
+                    await repo.fill_from_catalog(session, stored)
                 if single.currency != USD:
                     await repo.ensure_job(session, repo.JOB_FX, str(single.currency))
                 await session.commit()
@@ -201,10 +207,11 @@ class Collector:
                 history = await self._market.price_history(item.market_hash_name)
             async with self._sessions() as session:
                 await repo.save_history(session, item.id, history)
-                if variant is not None and variant.collection:
-                    stored = await repo.get_item(session, item.id)
-                    if stored is not None:
+                stored = await repo.get_item(session, item.id)
+                if stored is not None:
+                    if variant is not None and variant.collection:
                         stored.collection = variant.collection
+                    await repo.fill_from_catalog(session, stored)
                 await session.commit()
             currencies.add(history.currency)
             fetched.append((item.id, history))
