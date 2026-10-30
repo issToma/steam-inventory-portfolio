@@ -43,6 +43,37 @@ async def _candidates() -> tuple[dict[int, str], dict[int, str | None]]:
     return labels, colors
 
 
+class _ItemSelect(ui.select):
+    """A select whose options carry their item's rarity colour, for the option slot."""
+
+    def __init__(self, colors: Mapping[int, str | None], **kwargs: Any) -> None:
+        self._colors = colors
+        super().__init__(**kwargs)
+
+    def _update_options(self) -> None:
+        super()._update_options()
+        for option, value in zip(self._props["options"], self._values, strict=True):
+            option["color"] = self._colors.get(int(value))
+
+
+# An option: a check when chosen, the name in its rarity colour, the game dimmed.
+_OPTION_SLOT = """
+<q-item v-bind="props.itemProps">
+  <q-item-section side style="min-width: 28px">
+    <q-icon v-if="props.selected" name="check" color="primary" size="xs" />
+  </q-item-section>
+  <q-item-section>
+    <q-item-label>
+      <span :style="props.opt.color ? {color: props.opt.color} : {}">
+        {{ props.opt.label.split(' · ')[0] }}</span>
+      <span class="text-muted" style="font-size: 0.8em">
+        &nbsp;{{ props.opt.label.split(' · ')[1] || '' }}</span>
+    </q-item-label>
+  </q-item-section>
+</q-item>
+"""
+
+
 def _chip(label: str, color: str | None, on_remove: Callable[[], Awaitable[None]]) -> None:
     """A chosen item: its name in its rarity colour on a faint wash of the same colour."""
     name, _, game = label.partition(" · ")
@@ -201,8 +232,9 @@ async def content() -> None:
             ).classes("text-caption text-muted")
             candidates, colors = await _candidates()
             picker = (
-                ui.select(
-                    candidates,
+                _ItemSelect(
+                    colors,
+                    options=candidates,
                     multiple=True,
                     with_input=True,
                     label=tr(
@@ -211,9 +243,10 @@ async def content() -> None:
                     value=await _default_selection(candidates),
                 )
                 # The chosen items show as the chips below rather than inside the field.
-                .props(":display-value=\"''\"")
+                .props(":display-value=\"''\" popup-content-class=item-menu")
                 .classes("w-full")
             )
+            picker.add_slot("option", _OPTION_SLOT)
             chips = ui.row().classes("w-full gap-2")
             chart = ui.echart({}).classes("w-full h-[460px]")
 

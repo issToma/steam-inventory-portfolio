@@ -132,6 +132,9 @@ a.plain-link:hover { text-decoration: underline; }
 .rarity-chip-game { color: var(--muted); font-size: 0.75rem; }
 .rarity-chip .q-btn { color: var(--chip); opacity: 0.7; }
 .rarity-chip .q-btn:hover { opacity: 1; }
+/* Drop-down menus on the theme's surface rather than Quasar's own grey. */
+.q-menu { background: var(--surface) !important; color: var(--text);
+          border: 1px solid var(--border); }
 .unread-dot { min-width: 9px; min-height: 9px; padding: 0; top: 4px; right: 4px; }
 .unread-alert { border-left: 3px solid var(--q-primary); }
 """
