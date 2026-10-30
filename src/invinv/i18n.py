@@ -483,4 +483,8 @@ RU: dict[str, str] = {
         "котором не меньше {n} ваших предметов, от 100% на начало периода."
     ),
     "Not enough items in any segment yet.": "Пока ни в одном сегменте не хватает предметов.",
+    "The chart starts on {date}: that day your newest item, {item}, first sold. Before it, the portfolio as it is today did not exist.": (
+        "График начинается {date}: в этот день впервые продали ваш самый новый предмет, {item}. "
+        "Раньше портфеля в нынешнем составе не существовало."
+    ),
 }

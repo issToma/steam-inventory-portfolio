@@ -157,6 +157,8 @@ class Portfolio:
     pnl: float
     unpriced: int
     value_history: pd.Series  # daily, USD
+    # The item whose first sale starts value_history (the newest on the market), if any.
+    newest_item: str | None = None
 
 
 def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None) -> Portfolio:
@@ -233,7 +235,18 @@ def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None
         pnl=sum(pos.pnl for pos in with_pnl if pos.pnl is not None),
         unpriced=sum(1 for pos in positions if pos.price is None),
         value_history=value_history(inputs, dailies),
+        newest_item=_newest_item(inputs, dailies),
     )
+
+
+def _newest_item(inputs: Sequence[PositionInput], dailies: Mapping[int, pd.Series]) -> str | None:
+    """The item that came to the market last, which is where value_history() starts."""
+    firsts = []
+    for p in inputs:
+        daily = dailies.get(p.holding_id)
+        if daily is not None and not daily.empty:
+            firsts.append((daily.index[0], p.name))
+    return max(firsts)[1] if firsts else None
 
 
 def _changes(

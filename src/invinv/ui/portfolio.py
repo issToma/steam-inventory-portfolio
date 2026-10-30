@@ -170,6 +170,10 @@ def register() -> None:
                 chart_skeleton = ui.skeleton(height="18rem").classes("w-full")
                 chart = ui.echart({}).classes("w-full h-72")
                 chart.set_visibility(False)
+                with ui.row().classes("items-center gap-2 no-wrap") as start_note:
+                    ui.icon("info", size="xs").classes("text-muted")
+                    start_text = ui.label().classes("text-caption text-muted")
+                start_note.set_visibility(False)
             movers = ui.row().classes("w-full gap-3")
 
             # --- Positions ---------------------------------------------------------------
@@ -275,6 +279,16 @@ def register() -> None:
                     if period == "All" and not history.empty
                     else ""
                 )
+                start_note.set_visibility(
+                    period == "All" and not history.empty and portfolio.newest_item is not None
+                )
+                if portfolio.newest_item and not history.empty:
+                    start_text.text = tr(
+                        "The chart starts on {date}: that day your newest item, {item}, first "
+                        "sold. Before it, the portfolio as it is today did not exist.",
+                        date=f"{history.index[0]:%Y-%m-%d}",
+                        item=portfolio.newest_item,
+                    )
                 _period_stats(stats, period_stats(portfolio.value_history, PERIODS[period]))
                 _movers(movers, portfolio, period)
 

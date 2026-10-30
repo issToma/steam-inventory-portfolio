@@ -118,6 +118,7 @@ def test_value_history_starts_when_every_item_is_on_the_market() -> None:
 
     assert list(history) == [15, 16]
     assert history.index[0] == pd.Timestamp(DAY + timedelta(days=2))
+    assert value_positions([older, newer]).newest_item == "item 2"
 
 
 def test_price_is_the_cheapest_listing_not_an_odd_last_sale() -> None:
