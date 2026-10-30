@@ -475,8 +475,16 @@ def _watch_unread(drawer: ui.left_drawer, menu_dot: ui.badge) -> None:
 
     menu_dot.set_visibility(False)
     drawer.on_value_change(show)
+    app.storage.client["refresh_unread"] = update
     ui.timer(30, update)
     ui.timer(0.1, update, once=True)
+
+
+async def refresh_unread() -> None:
+    """Update the unread alerts count now (say, after the Alerts page read them)."""
+    update = app.storage.client.get("refresh_unread")
+    if update is not None:
+        await update()
 
 
 def _account_chip() -> None:

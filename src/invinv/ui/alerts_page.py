@@ -13,7 +13,7 @@ from invinv.pricing import listing_of
 from invinv.runtime import runtime
 from invinv.ui.common import icon_url, rarity_color, time_ago
 from invinv.ui.games import searchable_games
-from invinv.ui.layout import item_url, page_content
+from invinv.ui.layout import item_url, page_content, refresh_unread
 from invinv.ui.search_box import search_box
 
 
@@ -214,6 +214,8 @@ async def content() -> None:
                 unread = {event.id for event, _ in events if event.read_at is None}
                 await repo.mark_alerts_read(session)
                 await session.commit()
+            if unread:
+                await refresh_unread()
             language = current_language()
             feed.clear()
             with feed:
