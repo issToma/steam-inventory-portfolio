@@ -21,3 +21,6 @@ raw_responses/
 # IDE
 .idea/
 .vscode/
+
+# NiceGUI per-browser storage (theme, language, choices)
+.nicegui/
