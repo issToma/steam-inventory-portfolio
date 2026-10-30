@@ -309,8 +309,9 @@ def value_history(
     return frame.ffill().dropna().sum(axis=1)
 
 
-# Valued portfolios by game filter (None = every game), with the fingerprint they match.
-_cache: dict[int | None, tuple[tuple[object, ...], Portfolio]] = {}
+# The valued portfolios, of every game together (None) and of each game, with the
+# fingerprint they match: all of them are computed at once, so switching games is instant.
+_cache: tuple[tuple[object, ...], dict[int | None, Portfolio]] | None = None
 _cache_lock = asyncio.Lock()
 
 
@@ -320,15 +321,24 @@ async def load_portfolio(sessions: SessionMaker, appid: int | None = None) -> Po
     Results are kept in this process's memory; a cheap fingerprint query tells whether
     anything the valuation depends on has changed since.
     """
+    return (await load_portfolios(sessions)).get(appid) or _empty_portfolio()
+
+
+async def load_portfolios(sessions: SessionMaker) -> dict[int | None, Portfolio]:
+    """load_portfolio() of every game and of all of them, from one fingerprint query."""
+    global _cache
     async with _cache_lock:
         async with sessions() as session:
             fingerprint = await repo.portfolio_fingerprint(session)
-        cached = _cache.get(appid)
-        if cached is not None and cached[0] == fingerprint:
-            return cached[1]
-        portfolio = await _compute_portfolio(sessions, appid)
-        _cache[appid] = (fingerprint, portfolio)
-        return portfolio
+        if _cache is not None and _cache[0] == fingerprint:
+            return _cache[1]
+        portfolios = await _compute_portfolios(sessions)
+        _cache = (fingerprint, portfolios)
+        return portfolios
+
+
+def _empty_portfolio() -> Portfolio:
+    return value_positions([])
 
 
 # Computed prices per item, with the (history stamp, rates, fee) they were computed from.
@@ -363,13 +373,9 @@ async def cached_item_prices(
     return {item_id: _item_cache[item_id][1] for item_id in item_ids}
 
 
-async def _compute_portfolio(sessions: SessionMaker, appid: int | None = None) -> Portfolio:
+async def _compute_portfolios(sessions: SessionMaker) -> dict[int | None, Portfolio]:
     async with sessions() as session:
-        holdings = [
-            (holding, item)
-            for holding, item in await repo.active_holdings(session)
-            if appid is None or item.appid == appid
-        ]
+        holdings = await repo.active_holdings(session)
     prices = await cached_item_prices(sessions, [item for _, item in holdings])
     inputs = [
         PositionInput(
@@ -394,7 +400,15 @@ async def _compute_portfolio(sessions: SessionMaker, appid: int | None = None) -
         )
         for holding, item in holdings
     ]
-    return await asyncio.to_thread(value_positions, inputs)
+    return await asyncio.to_thread(_value_by_game, inputs)
+
+
+def _value_by_game(inputs: Sequence[PositionInput]) -> dict[int | None, Portfolio]:
+    games = sorted({p.appid for p in inputs})
+    result: dict[int | None, Portfolio] = {None: value_positions(inputs)}
+    for appid in games:
+        result[appid] = value_positions([p for p in inputs if p.appid == appid])
+    return result
 
 
 def _compute_items(
