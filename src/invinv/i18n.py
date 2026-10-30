@@ -457,7 +457,9 @@ RU: dict[str, str] = {
         "Каждая линия — цена предмета в процентах от её уровня на начало периода (медиана "
         "последних продаж, поэтому единичные странные сделки не учитываются)."
     ),
-    "Items from your portfolio and watchlist (up to {n})": "Предметы из портфеля и watchlist (до {n})",
+    "Add items from your portfolio and watchlist (up to {n})": (
+        "Добавьте предметы из портфеля и watchlist (до {n})"
+    ),
     "Up to {n} items at once.": "Не больше {n} предметов сразу.",
     # Order book
     "Order book": "Стакан заявок",

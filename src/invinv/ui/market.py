@@ -1,7 +1,8 @@
 import asyncio
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
+from functools import partial
 from typing import Any
 
 import pandas as pd
@@ -24,16 +25,33 @@ DEFAULT_COMPARED = 3
 _STORAGE_KEY = "compare_items"
 
 
-async def _candidates() -> dict[int, str]:
-    """Items with collected prices: the portfolio's and the watchlist's, by name."""
+async def _candidates() -> tuple[dict[int, str], dict[int, str | None]]:
+    """Items with collected prices, the portfolio's and the watchlist's: their labels by
+    name, and their rarity colours."""
     async with runtime.sessions() as session:
         items = {item.id: item for _, item in await repo.active_holdings(session)}
         items |= {item.id: item for item in await repo.watchlist_items(session)}
     names = await game_names()
-    return {
-        item.id: f"{item.market_hash_name} · {name_of(item.appid, names)}"
-        for item in sorted(items.values(), key=lambda i: i.market_hash_name)
+    ordered = sorted(items.values(), key=lambda i: i.market_hash_name)
+    labels = {
+        item.id: f"{item.market_hash_name} · {name_of(item.appid, names)}" for item in ordered
     }
+    colors = {
+        item.id: rarity_color(item.rarity, item.quality, item.name_color, item.appid)
+        for item in ordered
+    }
+    return labels, colors
+
+
+def _chip(label: str, color: str | None, on_remove: Callable[[], Awaitable[None]]) -> None:
+    """A chosen item: its name in its rarity colour on a faint wash of the same colour."""
+    name, _, game = label.partition(" · ")
+    tint = color or "var(--muted)"
+    with ui.row().classes("rarity-chip items-center no-wrap gap-1").style(f"--chip: {tint}"):
+        ui.label(name).classes("rarity-chip-name")
+        if game:
+            ui.label(game).classes("rarity-chip-game")
+        ui.button(icon="close", on_click=on_remove).props("flat round dense size=xs")
 
 
 async def _default_selection(candidates: Mapping[int, str]) -> list[int]:
@@ -181,18 +199,22 @@ async def content() -> None:
                     "trades do not count)."
                 )
             ).classes("text-caption text-muted")
-            candidates = await _candidates()
+            candidates, colors = await _candidates()
             picker = (
                 ui.select(
                     candidates,
                     multiple=True,
                     with_input=True,
-                    label=tr("Items from your portfolio and watchlist (up to {n})", n=MAX_COMPARED),
+                    label=tr(
+                        "Add items from your portfolio and watchlist (up to {n})", n=MAX_COMPARED
+                    ),
                     value=await _default_selection(candidates),
                 )
-                .props("use-chips")
+                # The chosen items show as the chips below rather than inside the field.
+                .props(":display-value=\"''\"")
                 .classes("w-full")
             )
+            chips = ui.row().classes("w-full gap-2")
             chart = ui.echart({}).classes("w-full h-[460px]")
 
         # --- Rating (F8) -------------------------------------------------------------
@@ -240,6 +262,10 @@ async def content() -> None:
                 ui.notify(tr("Up to {n} items at once.", n=MAX_COMPARED), type="warning")
                 return  # the value change above redraws
             app.storage.user[_STORAGE_KEY] = chosen
+            chips.clear()
+            with chips:
+                for item_id in chosen:
+                    _chip(candidates[item_id], colors.get(item_id), partial(remove, item_id))
             async with runtime.sessions() as session:
                 points = await repo.load_histories(session, chosen)
                 fx = await repo.latest_fx(session)
@@ -250,6 +276,9 @@ async def content() -> None:
             titles = {i: candidates[i].split(" · ")[0] for i in lines}
             chart.options.update(themed_chart(_chart(lines, titles)))
             chart.update()
+
+        async def remove(item_id: int) -> None:
+            picker.value = [i for i in picker.value or [] if int(i) != item_id]
 
         async def show_rating() -> None:
             shown = [r for r in rows if games.appid in (None, r.item.appid)]

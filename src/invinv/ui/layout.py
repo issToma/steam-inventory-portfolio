@@ -124,6 +124,14 @@ a.plain-link:has(.nav-item):hover { text-decoration: none; }
 .q-img__loading { display: none !important; }
 a.plain-link { color: inherit; text-decoration: none; }
 a.plain-link:hover { text-decoration: underline; }
+/* A chosen item: its rarity colour (--chip) on a faint wash of the same colour. */
+.rarity-chip { color: var(--chip);
+               border: 1px solid color-mix(in srgb, var(--chip) 45%, transparent);
+               background: color-mix(in srgb, var(--chip) 14%, transparent);
+               border-radius: 999px; padding: 2px 4px 2px 12px; font-size: 0.875rem; }
+.rarity-chip-game { color: var(--muted); font-size: 0.75rem; }
+.rarity-chip .q-btn { color: var(--chip); opacity: 0.7; }
+.rarity-chip .q-btn:hover { opacity: 1; }
 .unread-dot { min-width: 9px; min-height: 9px; padding: 0; top: 4px; right: 4px; }
 .unread-alert { border-left: 3px solid var(--q-primary); }
 """
