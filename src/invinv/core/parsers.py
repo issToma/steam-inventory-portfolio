@@ -209,6 +209,53 @@ def parse_group_page(html: str, fetched_at: datetime) -> dict[str, GroupVariant]
     return variants
 
 
+@dataclass(frozen=True)
+class OrderBook:
+    """The market of one item right now, in `currency` (Steam's code for the IP's country).
+
+    `best_bid` is the highest buy order: what a seller gets at once; `best_ask` the cheapest
+    listing, which buyers pay. Levels are (price, quantity), best first.
+    """
+
+    currency: int
+    best_bid: Decimal | None
+    best_ask: Decimal | None
+    buy_orders: int
+    sell_listings: int
+    bids: list[tuple[Decimal, int]]
+    asks: list[tuple[Decimal, int]]
+
+
+def parse_order_book(payload: Any) -> OrderBook:
+    """Parse /market/orderbook?q=Load. Amounts are in cents; levels come as flat
+    [price, quantity, price, quantity, ...] lists."""
+    source = "orderbook"
+    outer = _require(payload, "data", dict, source)
+    if outer.get("success") is not True:
+        raise SteamFormatError(f"{source}: success is not true")
+    data = _require(outer, "data", dict, source)
+
+    def amount(key: str) -> Decimal | None:
+        value = data.get(key)
+        return Decimal(value) / 100 if isinstance(value, int) and value > 0 else None
+
+    def levels(key: str) -> list[tuple[Decimal, int]]:
+        flat = data.get(key) or []
+        if not isinstance(flat, list) or len(flat) % 2:
+            raise SteamFormatError(f"{source}: {key} is not a list of pairs")
+        return [(Decimal(flat[i]) / 100, int(flat[i + 1])) for i in range(0, len(flat), 2)]
+
+    return OrderBook(
+        currency=_require(data, "eCurrency", int, source),
+        best_bid=amount("amtMaxBuyOrder"),
+        best_ask=amount("amtMinSellOrder"),
+        buy_orders=int(data.get("cBuyOrders") or 0),
+        sell_listings=int(data.get("cSellOrders") or 0),
+        bids=levels("rgCompactBuyOrders"),
+        asks=levels("rgCompactSellOrders"),
+    )
+
+
 def parse_price_overview(payload: Any) -> PriceOverview:
     """Parse /market/priceoverview. Fields are missing when the item has no listings or sales."""
     if not isinstance(payload, dict) or payload.get("success") is not True:

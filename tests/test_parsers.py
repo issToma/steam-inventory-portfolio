@@ -14,6 +14,7 @@ from invinv.core.parsers import (
     parse_inventory,
     parse_inventory_apps,
     parse_item_traits,
+    parse_order_book,
     parse_price_history,
     parse_price_overview,
     parse_profile_input,
@@ -317,3 +318,20 @@ def test_inventory_colour_comes_from_the_rarity_tag(load_fixture: Callable[[str]
     # G3SG1 | Polar Camo is Consumer Grade: the colour of its Rarity tag.
     assert items["G3SG1 | Polar Camo (Minimal Wear)"].name_color == "#b0c3d9"
     assert items["5 Year Veteran Coin"].name_color == "#eb4b4b"
+
+
+def test_order_book(load_fixture: Callable[[str], Any]) -> None:
+    book = parse_order_book(load_fixture("order_book.json"))
+
+    assert book.currency == 3
+    assert (book.best_bid, book.best_ask) == (Decimal("28.14"), Decimal("28.37"))
+    assert (book.buy_orders, book.sell_listings) == (47818, 1281)
+    assert book.bids[:2] == [(Decimal("28.14"), 29), (Decimal("28.11"), 20)]
+    assert book.asks[0] == (Decimal("28.37"), 2)
+
+
+def test_order_book_rejects_odd_levels() -> None:
+    payload = {"data": {"success": True, "data": {"eCurrency": 1, "rgCompactBuyOrders": [100]}}}
+
+    with pytest.raises(SteamFormatError):
+        parse_order_book(payload)

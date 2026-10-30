@@ -445,4 +445,29 @@ RU: dict[str, str] = {
     ),
     "Items from your portfolio and watchlist (up to {n})": "Предметы из портфеля и watchlist (до {n})",
     "Up to {n} items at once.": "Не больше {n} предметов сразу.",
+    # Order book
+    "Order book": "Стакан заявок",
+    "What buyers offer right now: selling into the best buy order happens at once, a listing waits for a buyer.": (
+        "Что покупатели предлагают прямо сейчас: продажа в лучшую заявку происходит сразу, "
+        "а выставленный лот ждёт покупателя."
+    ),
+    "Load from Steam": "Загрузить из Steam",
+    "Refresh": "Обновить",
+    "Steam answered in {currency}, whose rate is not known yet.": (
+        "Steam ответил в валюте {currency}, курс которой ещё неизвестен."
+    ),
+    "Sell now": "Продать сейчас",
+    "you receive {amount}": "вы получите {amount}",
+    "no buy orders": "заявок нет",
+    "Cheapest listing": "Самый дешёвый лот",
+    "Spread": "Спред",
+    "Buy orders": "Заявки на покупку",
+    "Listings": "Лоты",
+    "Selling your {n} at once: buyers pay {paid}, you receive {received}.": (
+        "Если продать все ваши {n} сразу: покупатели заплатят {paid}, вы получите {received}."
+    ),
+    "Only {sold} would sell: the buy orders run out.": (
+        "Продастся только {sold}: заявки закончатся."
+    ),
+    "{n} pcs": "{n} шт.",
 }

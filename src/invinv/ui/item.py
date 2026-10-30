@@ -1,4 +1,6 @@
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 import pandas as pd
@@ -21,11 +23,14 @@ from invinv.analysis import (
 )
 from invinv.core.currency import USD, currency_name
 from invinv.core.fees import seller_proceeds
+from invinv.core.http import SteamBusyError, SteamError
+from invinv.core.parsers import OrderBook, SteamFormatError
 from invinv.db import repo
 from invinv.i18n import tr, tr_n
 from invinv.portfolio import fee_rate
-from invinv.pricing import Listing, Quote, listing_of, quote, recent_sales_price
+from invinv.pricing import Listing, Quote, instant_sale, listing_of, quote, recent_sales_price
 from invinv.runtime import runtime
+from invinv.search import STEAM_MAX_WAIT
 from invinv.ui.alerts_page import open_item_alerts
 from invinv.ui.common import fmt_pct, fmt_usd, icon_url, pct_color, rarity_color, time_ago
 from invinv.ui.games import game_names, name_of
@@ -159,6 +164,101 @@ def _price_hint(current: Quote, listing: Listing | None) -> str:
     if listing is not None and listing.lowest_usd is None:
         return tr("nothing listed · median of recent sales")
     return tr("median of recent sales")
+
+
+# Price levels of each side shown in the order book card.
+BOOK_LEVELS = 5
+
+
+def _order_book_card(
+    name: str, appid: int, held: int, fee: float, fx: Mapping[int, Decimal]
+) -> None:
+    """Buy orders and listings right now, loaded on demand: one request to Steam."""
+    with ui.card().classes("w-full"):
+        with ui.row().classes("w-full items-center"):
+            with ui.column().classes("gap-0"):
+                ui.label(tr("Order book")).classes("text-subtitle1")
+                ui.label(
+                    tr(
+                        "What buyers offer right now: selling into the best buy order happens "
+                        "at once, a listing waits for a buyer."
+                    )
+                ).classes("text-caption text-muted")
+            ui.space()
+            button = ui.button(tr("Load from Steam"), icon="refresh").props("outline")
+        content = ui.column().classes("w-full gap-3")
+
+    async def load() -> None:
+        button.props("loading")
+        try:
+            book = await runtime.market.order_book(
+                name, appid, priority=True, max_wait=STEAM_MAX_WAIT
+            )
+        except SteamBusyError:
+            ui.notify(tr("Steam is busy right now; try again in a few minutes."), type="warning")
+            return
+        except SteamError, SteamFormatError:
+            ui.notify(tr("Could not reach Steam; try again in a minute."), type="warning")
+            return
+        finally:
+            button.props(remove="loading")
+        rate = Decimal(1) if book.currency == USD else fx.get(book.currency)
+        content.clear()
+        with content:
+            if rate is None:
+                ui.label(
+                    tr(
+                        "Steam answered in {currency}, whose rate is not known yet.",
+                        currency=currency_name(book.currency),
+                    )
+                ).classes("text-muted")
+                return
+            _render_book(book, rate, held, fee)
+        button.text = tr("Refresh")
+
+    button.on_click(load)
+
+
+def _render_book(book: OrderBook, rate: Decimal, held: int, fee: float) -> None:
+    def usd(amount: Decimal | None) -> str:
+        return fmt_usd(float(amount * rate)) if amount is not None else "—"
+
+    bid = book.best_bid
+    with ui.row().classes("gap-3"):
+        _stat(
+            tr("Sell now"),
+            usd(bid),
+            hint=tr(
+                "you receive {amount}",
+                amount=fmt_usd(seller_proceeds(round(bid * rate * 100), fee) / 100),
+            )
+            if bid is not None
+            else tr("no buy orders"),
+        )
+        _stat(tr("Cheapest listing"), usd(book.best_ask))
+        if bid is not None and book.best_ask:
+            _stat(tr("Spread"), f"{(book.best_ask - bid) / book.best_ask:.1%}")
+        _stat(tr("Buy orders"), f"{book.buy_orders:,}")
+        _stat(tr("Listings"), f"{book.sell_listings:,}")
+    if held:
+        sale = instant_sale([(price * rate, quantity) for price, quantity in book.bids], held, fee)
+        text = tr(
+            "Selling your {n} at once: buyers pay {paid}, you receive {received}.",
+            n=held,
+            paid=fmt_usd(float(sale.buyers_pay)),
+            received=fmt_usd(float(sale.you_receive)),
+        )
+        if sale.sold < held:
+            text += " " + tr("Only {sold} would sell: the buy orders run out.", sold=sale.sold)
+        ui.label(text)
+    with ui.row().classes("w-full gap-6"):
+        for title, levels in ((tr("Buy orders"), book.bids), (tr("Listings"), book.asks)):
+            with ui.column().classes("gap-0 min-w-48"):
+                ui.label(title).classes("text-caption text-muted")
+                for price, quantity in levels[:BOOK_LEVELS]:
+                    with ui.row().classes("w-full justify-between gap-6"):
+                        ui.label(usd(price))
+                        ui.label(tr("{n} pcs", n=f"{quantity:,}")).classes("text-muted")
 
 
 def register() -> None:
@@ -373,6 +473,8 @@ def register() -> None:
                         rate=f"{fx[last_currency]:.4f}",
                     )
                 ).classes("text-caption text-muted")
+
+            _order_book_card(item.market_hash_name, item.appid, held, fee, fx)
 
             with ui.card().classes("w-full max-w-md"):
                 ui.label(tr("Fee calculator")).classes("text-subtitle1")

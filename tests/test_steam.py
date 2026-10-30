@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from decimal import Decimal
 from typing import Any, cast
 
 import pytest
@@ -105,3 +106,17 @@ async def test_private_inventory() -> None:
 
     with pytest.raises(InventoryPrivateError):
         await market.inventory("76561198000000000", 730)
+
+
+async def test_order_book_is_a_query_action(load_fixture: Callable[[str], Any]) -> None:
+    client = FakeClient(load_fixture("order_book.json"))
+    market = SteamMarket(cast(SteamClient, client))
+
+    book = await market.order_book("AK-47 | Redline (Field-Tested)", 730, priority=True)
+
+    path, params, kwargs = client.calls[0]
+    assert path == "/market/orderbook"
+    assert params == {"q": "Load", "qp": '[730, "AK-47 | Redline (Field-Tested)"]'}
+    assert kwargs["headers"] == {"x-valve-request-type": "queryAction"}
+    assert kwargs["priority"] is True
+    assert book.best_bid == Decimal("28.14")

@@ -5,7 +5,14 @@ import numpy as np
 
 from invinv.analysis import price_views, to_frame
 from invinv.db.repo import StoredPoint
-from invinv.pricing import Listing, Quote, quote, recent_sales_price, weighted_median
+from invinv.pricing import (
+    Listing,
+    Quote,
+    instant_sale,
+    quote,
+    recent_sales_price,
+    weighted_median,
+)
 
 NOW = datetime(2026, 10, 28, 12, tzinfo=UTC)
 
@@ -37,3 +44,14 @@ def test_quote_prefers_a_fresh_listing() -> None:
     assert quote(empty, 3.0, NOW) == Quote(3.0, "sales")
     assert quote(old, 3.0, NOW) == Quote(3.0, "sales")
     assert quote(None, None, NOW) is None
+
+
+def test_instant_sale_walks_the_buy_orders() -> None:
+    bids = [(Decimal("1.00"), 2), (Decimal("0.90"), 5)]
+
+    sale = instant_sale(bids, 3)
+
+    assert (sale.sold, sale.buyers_pay) == (3, Decimal("2.90"))
+    # After the fees, $1.00 leaves the seller $0.88 and $0.90 leaves $0.79.
+    assert sale.you_receive == Decimal("2.55")
+    assert instant_sale(bids, 10).sold == 7

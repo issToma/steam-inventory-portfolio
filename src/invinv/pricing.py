@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from invinv.analysis import PriceViews
+from invinv.core.fees import PUBLISHER_FEE_RATE, seller_proceeds
 from invinv.db.tables import Item
 
 # Older listing data is not trusted as the current price.
@@ -85,3 +86,27 @@ def listing_of(item: Item) -> Listing | None:
         sales_24h=item.sales_24h,
         checked_at=item.listing_checked_at,
     )
+
+
+@dataclass(frozen=True)
+class InstantSale:
+    """Selling at once into the buy orders, best first."""
+
+    sold: int  # fewer than asked when the orders run out
+    buyers_pay: Decimal
+    you_receive: Decimal  # after Steam's and the game's fees, per unit
+
+
+def instant_sale(
+    bids: list[tuple[Decimal, int]], quantity: int, publisher_fee: float = PUBLISHER_FEE_RATE
+) -> InstantSale:
+    sold, paid, received = 0, Decimal(0), Decimal(0)
+    for price, available in bids:
+        take = min(available, quantity - sold)
+        if take <= 0:
+            break
+        cents = round(price * 100)
+        sold += take
+        paid += price * take
+        received += Decimal(seller_proceeds(cents, publisher_fee)) / 100 * take
+    return InstantSale(sold=sold, buyers_pay=paid, you_receive=received)

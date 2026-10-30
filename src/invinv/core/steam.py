@@ -10,6 +10,7 @@ from invinv.core.parsers import (
     GroupVariant,
     InventoryApp,
     InventoryItem,
+    OrderBook,
     PriceHistory,
     PriceOverview,
     ProfileRef,
@@ -19,6 +20,7 @@ from invinv.core.parsers import (
     parse_group_page,
     parse_inventory,
     parse_inventory_apps,
+    parse_order_book,
     parse_price_history,
     parse_price_overview,
     parse_profile_xml,
@@ -175,6 +177,24 @@ class SteamMarket:
             headers=_QUERY_ACTION,
         )
         return parse_price_history(payload, fetched_at=datetime.now(UTC))
+
+    async def order_book(
+        self,
+        market_hash_name: str,
+        appid: int,
+        *,
+        priority: bool = False,
+        max_wait: float | None = None,
+    ) -> OrderBook:
+        """Buy orders and listings of one item right now, in the currency of the IP."""
+        payload = await self._client.get_json(
+            "/market/orderbook",
+            params={"q": "Load", "qp": json.dumps([appid, market_hash_name], ensure_ascii=False)},
+            headers=_QUERY_ACTION,
+            priority=priority,
+            max_wait=max_wait,
+        )
+        return parse_order_book(payload)
 
     async def group_page(self, bucket_group_id: str, appid: int) -> dict[str, GroupVariant]:
         """History and descriptions of every variant in a market group, in one request."""
