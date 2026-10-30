@@ -1,10 +1,10 @@
+import json
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
 import pandas as pd
-from fastapi.responses import RedirectResponse
 from nicegui import ui
 
 from invinv.analysis import (
@@ -40,7 +40,7 @@ from invinv.ui.layout import (
     SEGMENTED_PROPS,
     delta_class,
     kpi,
-    page_frame,
+    page_content,
     themed_chart,
 )
 from invinv.ui.portfolio import GRID_COLOR
@@ -262,248 +262,238 @@ def _render_book(book: OrderBook, rate: Decimal, held: int, fee: float) -> None:
                         ui.label(tr("{n} pcs", n=f"{quantity:,}")).classes("text-muted")
 
 
-def register() -> None:
-    # Registered before /item/{item_id}, which would otherwise reject "by-name" as an id.
-    @ui.page("/item/by-name")
-    async def item_by_name(name: str, appid: int) -> RedirectResponse:
-        async with runtime.sessions() as session:
-            item = await repo.get_or_create_item(session, name, appid)
-            await session.commit()
-        return RedirectResponse(f"/item/{item.id}")
+async def by_name(name: str, appid: int) -> None:
+    """An item page by market name (links from search and the catalog): shows the item and
+    puts its /item/<id> address in the browser instead, without a step in the history."""
+    async with runtime.sessions() as session:
+        item = await repo.get_or_create_item(session, name, appid)
+        await session.commit()
+    path = json.dumps(f"/item/{item.id}")
+    ui.run_javascript(f"history.replaceState({{page: {path}}}, '', {path})")
+    await content(item.id)
 
-    @ui.page("/item/{item_id}")
-    async def item_page(item_id: int) -> None:
-        async with runtime.sessions() as session:
-            item = await repo.get_item(session, item_id)
-            points = await repo.load_history(session, item_id) if item else []
-            fx = await repo.latest_fx(session)
-            tracked = await repo.is_tracked(session, item_id) if item else False
-            watched = await repo.in_watchlist(session, item_id) if item else False
-            held = (await repo.held_quantities(session, [item_id])).get(item_id, 0) if item else 0
 
-        with page_frame("item"):
-            if item is None:
-                ui.label(tr("Item not found."))
-                return
-            with ui.row().classes("items-center no-wrap gap-4"):
-                image = icon_url(item.icon_url, "256fx192f")
-                if image:
-                    ui.image(image).classes("w-40 h-28").props("fit=contain")
-                with ui.column().classes("gap-1"):
-                    color = rarity_color(item.rarity, item.quality, item.name_color, item.appid)
-                    ui.label(item.market_hash_name).classes("text-h5").style(
-                        f"color: {color}" if color else ""
-                    )
-                    game = name_of(item.appid, await game_names())
-                    traits = " · ".join(
-                        t for t in (game, item.item_type, item.exterior, item.collection) if t
-                    )
-                    if traits:
-                        ui.label(traits).classes("text-muted")
-                    holding_line = ui.label().classes("text-subtitle2")
+async def content(item_id: int) -> None:
+    """The item page's content (in the app shell, see ui.shell)."""
+    async with runtime.sessions() as session:
+        item = await repo.get_item(session, item_id)
+        points = await repo.load_history(session, item_id) if item else []
+        fx = await repo.latest_fx(session)
+        tracked = await repo.is_tracked(session, item_id) if item else False
+        watched = await repo.in_watchlist(session, item_id) if item else False
+        held = (await repo.held_quantities(session, [item_id])).get(item_id, 0) if item else 0
 
-            async def toggle_watch() -> None:
-                async with runtime.sessions() as session:
-                    if watched:
-                        await repo.remove_from_watchlist(session, item_id)
-                    else:
-                        await repo.add_to_watchlist(
-                            session, item.market_hash_name, appid=item.appid
-                        )
-                    await session.commit()
+    with page_content():
+        if item is None:
+            ui.label(tr("Item not found."))
+            return
+        with ui.row().classes("items-center no-wrap gap-4"):
+            image = icon_url(item.icon_url, "256fx192f")
+            if image:
+                ui.image(image).classes("w-40 h-28").props("fit=contain")
+            with ui.column().classes("gap-1"):
+                color = rarity_color(item.rarity, item.quality, item.name_color, item.appid)
+                ui.label(item.market_hash_name).classes("text-h5").style(
+                    f"color: {color}" if color else ""
+                )
+                game = name_of(item.appid, await game_names())
+                traits = " · ".join(
+                    t for t in (game, item.item_type, item.exterior, item.collection) if t
+                )
+                if traits:
+                    ui.label(traits).classes("text-muted")
+                holding_line = ui.label().classes("text-subtitle2")
+
+        async def toggle_watch() -> None:
+            async with runtime.sessions() as session:
+                if watched:
+                    await repo.remove_from_watchlist(session, item_id)
+                else:
+                    await repo.add_to_watchlist(session, item.market_hash_name, appid=item.appid)
+                await session.commit()
+            ui.navigate.reload()
+
+        async def add_to_portfolio() -> None:
+            if await add_position(item.market_hash_name, appid=item.appid):
                 ui.navigate.reload()
 
-            async def add_to_portfolio() -> None:
-                if await add_position(item.market_hash_name, appid=item.appid):
-                    ui.navigate.reload()
-
-            with ui.row().classes("gap-2"):
-                ui.button(
-                    tr("Remove from watchlist") if watched else tr("Add to watchlist"),
-                    icon="visibility_off" if watched else "visibility",
-                    on_click=toggle_watch,
-                ).props(f"outline color={'negative' if watched else 'primary'}")
-                ui.button(tr("Add to portfolio"), icon="add", on_click=add_to_portfolio).props(
-                    "outline"
-                )
-                ui.button(
-                    tr("Alerts"),
-                    icon="add_alert",
-                    on_click=lambda: open_item_alerts(item.market_hash_name, item.appid),
-                ).props("outline")
-
-            try:
-                raw_frame = to_frame(points, fx, drop_outliers=False)
-            except MissingRateError as exc:
-                ui.label(
-                    tr(
-                        "Waiting for Steam's {currency} → USD rate; the collector fetches it "
-                        "right after the first history download.",
-                        currency=currency_name(exc.currency),
-                    )
-                )
-                return
-            frame = remove_outliers(raw_frame)
-            fee = fee_rate(item)
-            metrics = compute_metrics(frame, publisher_fee=fee)
-            if metrics is None:
-                ui.label(
-                    tr(
-                        "No price history yet. Either the collector has not fetched it, or the "
-                        "item has never been sold on the market."
-                    )
-                    if tracked
-                    else tr(
-                        "Prices of this item are not collected yet. Add it to the watchlist or "
-                        "the portfolio and its full history arrives within a minute."
-                    )
-                ).classes("text-muted")
-                return
-
-            listing = listing_of(item)
-            views = price_views(frame)
-            current = quote(listing, recent_sales_price(views), datetime.now(UTC)) or Quote(
-                metrics.last_price, "sales"
+        with ui.row().classes("gap-2"):
+            ui.button(
+                tr("Remove from watchlist") if watched else tr("Add to watchlist"),
+                icon="visibility_off" if watched else "visibility",
+                on_click=toggle_watch,
+            ).props(f"outline color={'negative' if watched else 'primary'}")
+            ui.button(tr("Add to portfolio"), icon="add", on_click=add_to_portfolio).props(
+                "outline"
             )
-            if held:
-                holding_line.text = tr(
-                    "You hold {quantity} · worth {value}",
-                    quantity=held,
-                    value=fmt_usd(held * current.price),
+            ui.button(
+                tr("Alerts"),
+                icon="add_alert",
+                on_click=lambda: open_item_alerts(item.market_hash_name, item.appid),
+            ).props("outline")
+
+        try:
+            raw_frame = to_frame(points, fx, drop_outliers=False)
+        except MissingRateError as exc:
+            ui.label(
+                tr(
+                    "Waiting for Steam's {currency} → USD rate; the collector fetches it "
+                    "right after the first history download.",
+                    currency=currency_name(exc.currency),
+                )
+            )
+            return
+        frame = remove_outliers(raw_frame)
+        fee = fee_rate(item)
+        metrics = compute_metrics(frame, publisher_fee=fee)
+        if metrics is None:
+            ui.label(
+                tr(
+                    "No price history yet. Either the collector has not fetched it, or the "
+                    "item has never been sold on the market."
+                )
+                if tracked
+                else tr(
+                    "Prices of this item are not collected yet. Add it to the watchlist or "
+                    "the portfolio and its full history arrives within a minute."
+                )
+            ).classes("text-muted")
+            return
+
+        listing = listing_of(item)
+        views = price_views(frame)
+        current = quote(listing, recent_sales_price(views), datetime.now(UTC)) or Quote(
+            metrics.last_price, "sales"
+        )
+        if held:
+            holding_line.text = tr(
+                "You hold {quantity} · worth {value}",
+                quantity=held,
+                value=fmt_usd(held * current.price),
+            )
+
+        now = datetime.now(UTC)
+        changes = {
+            label: change_since(views.robust, current.price, span, now)
+            for label, span in CHANGE_WINDOWS.items()
+        }
+        median = listing.median_24h_usd if listing else None
+        with ui.card().classes("w-full gap-3"):
+            # The price and how it moved, then the details in one strip.
+            with ui.row().classes("items-center gap-3"):
+                ui.label(fmt_usd(current.price)).classes("hero-value")
+                for label, change in changes.items():
+                    ui.label(f"{label} {fmt_pct(change)}").classes(
+                        f"delta-pill {delta_class(change)}"
+                    )
+            ui.label(_price_hint(current, listing)).classes("kpi-label")
+            with ui.row().classes("w-full items-stretch gap-y-3 kpi-strip"):
+                kpi(
+                    tr("Median sale, 24h"),
+                    fmt_usd(float(median)) if median is not None else "—",
+                    tooltip=tr_n(listing.sales_24h or 0, "{n} sale", "{n} sales")
+                    if listing is not None
+                    else "",
+                )
+                kpi(
+                    tr("Last sale"),
+                    fmt_usd(metrics.last_price),
+                    tooltip=time_ago(metrics.last_ts.to_pydatetime()),
+                )
+                kpi(
+                    tr("Sales per day (30d)"),
+                    "—"
+                    if metrics.avg_daily_volume_30d is None
+                    else f"{metrics.avg_daily_volume_30d:,.0f}",
+                )
+                kpi(
+                    tr("Volatility (30d, daily)"),
+                    "—" if metrics.volatility_30d is None else f"{metrics.volatility_30d:.1%}",
+                )
+                kpi(
+                    tr("You receive after fee"),
+                    fmt_usd(seller_proceeds(round(current.price * 100), fee) / 100),
                 )
 
-            now = datetime.now(UTC)
-            changes = {
-                label: change_since(views.robust, current.price, span, now)
-                for label, span in CHANGE_WINDOWS.items()
-            }
-            median = listing.median_24h_usd if listing else None
-            with ui.card().classes("w-full gap-3"):
-                # The price and how it moved, then the details in one strip.
-                with ui.row().classes("items-center gap-3"):
-                    ui.label(fmt_usd(current.price)).classes("hero-value")
-                    for label, change in changes.items():
-                        ui.label(f"{label} {fmt_pct(change)}").classes(
-                            f"delta-pill {delta_class(change)}"
-                        )
-                ui.label(_price_hint(current, listing)).classes("kpi-label")
-                with ui.row().classes("w-full items-stretch gap-y-3 kpi-strip"):
-                    kpi(
-                        tr("Median sale, 24h"),
-                        fmt_usd(float(median)) if median is not None else "—",
-                        tooltip=tr_n(listing.sales_24h or 0, "{n} sale", "{n} sales")
-                        if listing is not None
-                        else "",
-                    )
-                    kpi(
-                        tr("Last sale"),
-                        fmt_usd(metrics.last_price),
-                        tooltip=time_ago(metrics.last_ts.to_pydatetime()),
-                    )
-                    kpi(
-                        tr("Sales per day (30d)"),
-                        "—"
-                        if metrics.avg_daily_volume_30d is None
-                        else f"{metrics.avg_daily_volume_30d:,.0f}",
-                    )
-                    kpi(
-                        tr("Volatility (30d, daily)"),
-                        "—" if metrics.volatility_30d is None else f"{metrics.volatility_30d:.1%}",
-                    )
-                    kpi(
-                        tr("You receive after fee"),
-                        fmt_usd(seller_proceeds(round(current.price * 100), fee) / 100),
-                    )
-
-            with ui.row().classes("items-center gap-4"):
-                range_toggle = (
-                    ui.toggle(range_options(), value="30D")
-                    .props(SEGMENTED_PROPS)
-                    .classes("segmented")
-                )
-                sma_switch = ui.switch("SMA")
-                sma_window = (
-                    ui.number(value=20, min=2, max=500, step=1).props("dense").classes("w-20")
-                )
-                outliers_switch = ui.switch(tr("Hide outliers"), value=True)
-                with outliers_switch:
-                    ui.tooltip(
-                        tr(
-                            "Draws the median of about the last 20 sales, so that single odd "
-                            "sales (say, a cheap item bought for far more) do not spike the "
-                            "chart. Prices and changes always use it."
-                        )
-                    )
-                ema_switch = ui.switch("EMA")
-                ema_window = (
-                    ui.number(value=20, min=2, max=500, step=1).props("dense").classes("w-20")
-                )
-
-            chart = ui.echart({}).classes("w-full h-[520px]")
-
-            def redraw() -> None:
-                if outliers_switch.value:
-                    series = _select(frame, range_toggle.value)
-                    series = series.assign(price=robust_prices(series))
-                else:
-                    series = _select(raw_frame, range_toggle.value)
-                chart.options.clear()
-                chart.options.update(
-                    themed_chart(
-                        _chart_options(
-                            series,
-                            int(sma_window.value)
-                            if sma_switch.value and sma_window.value
-                            else None,
-                            int(ema_window.value)
-                            if ema_switch.value and ema_window.value
-                            else None,
-                        )
-                    )
-                )
-                chart.update()
-
-            for control in (
-                range_toggle,
-                sma_switch,
-                sma_window,
-                ema_switch,
-                ema_window,
-                outliers_switch,
-            ):
-                control.on_value_change(redraw)
-            redraw()
-
-            last_currency = points[-1].currency
-            if last_currency != USD:
-                ui.label(
+        with ui.row().classes("items-center gap-4"):
+            range_toggle = (
+                ui.toggle(range_options(), value="30D").props(SEGMENTED_PROPS).classes("segmented")
+            )
+            sma_switch = ui.switch("SMA")
+            sma_window = ui.number(value=20, min=2, max=500, step=1).props("dense").classes("w-20")
+            outliers_switch = ui.switch(tr("Hide outliers"), value=True)
+            with outliers_switch:
+                ui.tooltip(
                     tr(
-                        "Steam returned prices in {currency}; converted to USD at Steam's own "
-                        "rate ({rate} USD per unit).",
-                        currency=currency_name(last_currency),
-                        rate=f"{fx[last_currency]:.4f}",
+                        "Draws the median of about the last 20 sales, so that single odd "
+                        "sales (say, a cheap item bought for far more) do not spike the "
+                        "chart. Prices and changes always use it."
                     )
-                ).classes("text-caption text-muted")
-
-            _order_book_card(item.market_hash_name, item.appid, held, fee, fx)
-
-            with ui.card().classes("w-full max-w-md"):
-                ui.label(tr("Fee calculator")).classes("text-subtitle1")
-                price_input = ui.number(
-                    tr("Listing price (buyer pays), $"),
-                    value=round(current.price, 2),
-                    format="%.2f",
                 )
-                result = ui.label()
+            ema_switch = ui.switch("EMA")
+            ema_window = ui.number(value=20, min=2, max=500, step=1).props("dense").classes("w-20")
 
-                def update_fee() -> None:
-                    cents = round((price_input.value or 0) * 100)
-                    proceeds = seller_proceeds(cents, fee)
-                    result.text = tr(
-                        "You receive {proceeds}, fees {fees}",
-                        proceeds=fmt_usd(proceeds / 100),
-                        fees=fmt_usd((cents - proceeds) / 100),
+        chart = ui.echart({}).classes("w-full h-[520px]")
+
+        def redraw() -> None:
+            if outliers_switch.value:
+                series = _select(frame, range_toggle.value)
+                series = series.assign(price=robust_prices(series))
+            else:
+                series = _select(raw_frame, range_toggle.value)
+            chart.options.clear()
+            chart.options.update(
+                themed_chart(
+                    _chart_options(
+                        series,
+                        int(sma_window.value) if sma_switch.value and sma_window.value else None,
+                        int(ema_window.value) if ema_switch.value and ema_window.value else None,
                     )
+                )
+            )
+            chart.update()
 
-                price_input.on_value_change(update_fee)
-                update_fee()
+        for control in (
+            range_toggle,
+            sma_switch,
+            sma_window,
+            ema_switch,
+            ema_window,
+            outliers_switch,
+        ):
+            control.on_value_change(redraw)
+        redraw()
+
+        last_currency = points[-1].currency
+        if last_currency != USD:
+            ui.label(
+                tr(
+                    "Steam returned prices in {currency}; converted to USD at Steam's own "
+                    "rate ({rate} USD per unit).",
+                    currency=currency_name(last_currency),
+                    rate=f"{fx[last_currency]:.4f}",
+                )
+            ).classes("text-caption text-muted")
+
+        _order_book_card(item.market_hash_name, item.appid, held, fee, fx)
+
+        with ui.card().classes("w-full max-w-md"):
+            ui.label(tr("Fee calculator")).classes("text-subtitle1")
+            price_input = ui.number(
+                tr("Listing price (buyer pays), $"),
+                value=round(current.price, 2),
+                format="%.2f",
+            )
+            result = ui.label()
+
+            def update_fee() -> None:
+                cents = round((price_input.value or 0) * 100)
+                proceeds = seller_proceeds(cents, fee)
+                result.text = tr(
+                    "You receive {proceeds}, fees {fees}",
+                    proceeds=fmt_usd(proceeds / 100),
+                    fees=fmt_usd((cents - proceeds) / 100),
+                )
+
+            price_input.on_value_change(update_fee)
+            update_fee()

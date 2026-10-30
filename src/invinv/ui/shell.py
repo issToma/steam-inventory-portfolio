@@ -1,8 +1,8 @@
 """The app shell: header and navigation are built once per visit, and moving between pages
 swaps only the content beside them (ui.sub_pages), without reloading the page.
 
-Pages move into the shell one by one; the others still load as pages of their own, which
-the sub pages router opens with a reload.
+Links within the app (the navigation, table rows, search results) are caught by the sub
+pages router and swap the content; other addresses load as usual.
 """
 
 from collections.abc import Awaitable, Callable
@@ -10,15 +10,18 @@ from collections.abc import Awaitable, Callable
 from fastapi import Request
 from nicegui import ui
 
-from invinv.ui import alerts_page, market, portfolio, settings_page, watchlist
+from invinv.ui import alerts_page, item, market, portfolio, settings_page, watchlist
 from invinv.ui.layout import page_frame
 
-ROUTES: dict[str, Callable[[], Awaitable[None]]] = {
+ROUTES: dict[str, Callable[..., Awaitable[None]]] = {
     "/": portfolio.content,
     "/watchlist": watchlist.content,
     "/alerts": alerts_page.content,
     "/market": market.content,
     "/settings": settings_page.content,
+    # Before /item/{item_id}, which would otherwise take "by-name" for an id.
+    "/item/by-name": item.by_name,
+    "/item/{item_id}": item.content,
 }
 # The navigation entry each route belongs to.
 _NAV_KEYS = {
