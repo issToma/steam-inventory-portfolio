@@ -165,7 +165,7 @@ def test_without_listings_the_price_is_the_median_of_recent_sales() -> None:
 
 
 def test_period_stats_count_only_items_already_on_the_market() -> None:
-    older = position(1, [10, 10, 12, 12], quantity=1)
+    older = position(1, [10, 10, 11, 12], quantity=1)
     newer = PositionInput(  # first sold on day 2
         holding_id=2,
         item_id=2,
@@ -187,7 +187,11 @@ def test_period_stats_count_only_items_already_on_the_market() -> None:
 
     same, counted = like_for_like(frame, None)
 
-    # The newer item would show as +100 growth; only the older item counts: 10 -> 12.
+    # For all time the stats start once half of today's value (112) was on the market:
+    # the newer item, worth 100, came on day 2; then both count: 111 -> 112.
+    assert counted == 2
+    assert list(same) == [111, 112]
+    # Over a period starting before the newer item, it would show as growth: left out.
+    same, counted = like_for_like(frame, timedelta(days=3))
     assert counted == 1
-    assert list(same) == [10, 10, 12, 12]
-    assert like_for_like(frame, timedelta(days=1))[1] == 2
+    assert list(same) == [10, 10, 11, 12]

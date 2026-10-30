@@ -499,4 +499,7 @@ RU: dict[str, str] = {
     ),
     "Not enough items in any segment yet.": "Пока ни в одном сегменте не хватает предметов.",
     "{n} more": "Ещё {n}",
+    "since {date}, when half of today's value was on the market": (
+        "с {date}, когда на рынке была половина нынешней стоимости"
+    ),
 }

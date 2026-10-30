@@ -271,6 +271,11 @@ def register() -> None:
                     else tr("For the period · {period}", period=period)
                 )
                 same_items, counted = like_for_like(portfolio.value_frame, PERIODS[period])
+                if period == "All" and not same_items.empty:
+                    period_caption.text += " · " + tr(
+                        "since {date}, when half of today's value was on the market",
+                        date=f"{same_items.index[0]:%Y-%m-%d}",
+                    )
                 if counted < len(portfolio.value_frame.columns):
                     # Items that came to the market later would count as growth.
                     period_caption.text += " · " + tr_n(

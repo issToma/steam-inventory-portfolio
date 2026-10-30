@@ -292,15 +292,28 @@ def value_frame(
     return frame.ffill()
 
 
+# For all time, stats start once the items on the market made up this share of today's value:
+# from the very first item on, they would describe one early item rather than the portfolio.
+ALL_TIME_SHARE = 0.5
+
+
 def like_for_like(frame: pd.DataFrame, period: timedelta | None) -> tuple[pd.Series, int]:
     """The value over the period of the positions that were on the market at its start,
-    and how many they are: items that came later would show up as growth."""
+    and how many they are: items that came later would show up as growth.
+
+    For all time (None) the start is the first day on which the positions already on the
+    market made up ALL_TIME_SHARE of today's value.
+    """
     if frame.empty:
         return pd.Series(dtype=float), 0
     days = pd.DatetimeIndex(frame.index)
-    start = 0
     if period is not None:
         start = max(int(days.searchsorted(days[-1] - period, side="right")) - 1, 0)
+    else:
+        today = frame.iloc[-1].fillna(0).to_numpy()
+        on_market = frame.notna().to_numpy()
+        share = (on_market * today).sum(axis=1) / max(today.sum(), 1e-9)
+        start = min(int(np.argmax(share >= ALL_TIME_SHARE)), len(days) - 1)
     present = frame.iloc[start].notna().to_numpy()
     return frame.iloc[start:, present].sum(axis=1), int(present.sum())
 
