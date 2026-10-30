@@ -1128,6 +1128,15 @@ async def alert_events(session: AsyncSession, limit: int = 100) -> list[tuple[Al
     return [(event, item) for event, item in result]
 
 
+async def delete_alert_event(session: AsyncSession, event_id: int) -> None:
+    await session.execute(delete(AlertEvent).where(AlertEvent.id == event_id))
+
+
+async def clear_alert_events(session: AsyncSession) -> None:
+    """Empty the notification feed; the rules stay."""
+    await session.execute(delete(AlertEvent))
+
+
 async def unread_alert_count(session: AsyncSession) -> int:
     count = await session.scalar(
         select(func.count()).select_from(AlertEvent).where(AlertEvent.read_at.is_(None))

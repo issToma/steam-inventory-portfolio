@@ -146,3 +146,20 @@ async def test_notifier_retries_then_gives_up(sessions: SessionMaker) -> None:
 
     await notifier.deliver(created + alerts.TELEGRAM_GIVE_UP)
     assert await telegram_states(sessions) == [repo.TELEGRAM_FAILED]
+
+
+async def test_notifications_can_be_deleted_one_by_one_or_all(session: AsyncSession) -> None:
+    rule_id = await add_rule(session, "below", "5")
+    item_id = await set_price(session, "1")
+    await alerts.check_items(session, [item_id], NOW)
+    ((event, _),) = await repo.alert_events(session)
+
+    await repo.delete_alert_event(session, event.id)
+    assert await repo.alert_events(session) == []
+
+    rule = await repo.get_alert(session, rule_id)
+    assert rule is not None
+    await repo.add_alert_event(session, rule, 1.0, None, telegram="off")
+    await repo.clear_alert_events(session)
+    assert await repo.alert_events(session) == []
+    assert await repo.get_alert(session, rule_id) is not None

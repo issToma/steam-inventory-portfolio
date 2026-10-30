@@ -186,7 +186,12 @@ async def content() -> None:
 
         with ui.row().classes("w-full gap-4 items-start"):
             with ui.card().classes("flex-1 min-w-[22rem]"):
-                ui.label(tr("Notifications")).classes("text-h6")
+                with ui.row().classes("w-full items-center"):
+                    ui.label(tr("Notifications")).classes("text-h6")
+                    ui.space()
+                    clear_button = ui.button(
+                        tr("Clear"), icon="delete_sweep", on_click=lambda: clear_feed()
+                    ).props("flat dense no-caps color=grey")
                 feed = ui.column().classes("w-full gap-2")
             with ui.card().classes("flex-1 min-w-[22rem]"):
                 ui.label(tr("Rules")).classes("text-h6")
@@ -217,6 +222,7 @@ async def content() -> None:
             if unread:
                 await refresh_unread()
             language = current_language()
+            clear_button.set_visibility(bool(events))
             feed.clear()
             with feed:
                 if not events:
@@ -231,11 +237,35 @@ async def content() -> None:
                             _item_link(item.market_hash_name, item.appid, item.icon_url, color)
                             ui.space()
                             ui.label(time_ago(event.created_at)).classes("text-caption text-muted")
+                            ui.button(
+                                icon="close", on_click=lambda e=event.id: remove_event(e)
+                            ).props("flat dense round size=sm color=grey")
                         rule = alerts.describe(
                             language, event.kind, event.threshold, event.window_hours
                         )
                         summary = alerts.event_summary(language, event)
                         ui.label(f"{rule}: {summary}").classes("pl-10")
+
+        async def remove_event(event_id: int) -> None:
+            async with runtime.sessions() as session:
+                await repo.delete_alert_event(session, event_id)
+                await session.commit()
+            await render_feed()
+
+        async def clear_feed() -> None:
+            with ui.dialog() as dialog, ui.card():
+                ui.label(tr("Delete all notifications? The rules stay."))
+                with ui.row().classes("w-full justify-end"):
+                    ui.button(tr("Cancel"), on_click=lambda: dialog.submit(False)).props("flat")
+                    ui.button(tr("Delete"), on_click=lambda: dialog.submit(True)).props(
+                        "color=negative"
+                    )
+            if not await dialog:
+                return
+            async with runtime.sessions() as session:
+                await repo.clear_alert_events(session)
+                await session.commit()
+            await render_feed()
 
         async def pick(result: SearchResult) -> bool:
             picked.clear()
