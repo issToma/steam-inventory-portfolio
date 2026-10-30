@@ -86,6 +86,28 @@ body.body--dark { --q-dark-page: var(--bg); --q-dark: var(--surface); }
                     font-weight: 500; color: var(--muted); }
 .segmented .q-btn:hover { color: var(--text); }
 .segmented .q-btn.bg-primary { color: #fff; }
+/* Motion: short and calm, and none at all when the system asks for reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes invinv-rise { from { opacity: 0; transform: translateY(6px); }
+                           to { opacity: 1; transform: none; } }
+  @keyframes invinv-fade { from { opacity: 0; } to { opacity: 1; } }
+  .page-enter > * { animation: invinv-rise 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .page-enter > *:nth-child(2) { animation-delay: 40ms; }
+  .page-enter > *:nth-child(3) { animation-delay: 80ms; }
+  .page-enter > *:nth-child(n + 4) { animation-delay: 120ms; }
+  .hero-value, .delta-pill { animation: invinv-fade 0.35s ease-out both; }
+  .q-table tbody tr, .nav-item, .kpi, .q-btn, .q-card {
+    transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease; }
+  .q-table tbody tr:hover { background: var(--hover); }
+  .seg-indicator { transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1),
+                               width 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
+}
+/* The sliding pill of a period switch sits behind its segments. */
+.segmented { position: relative; }
+.segmented .q-btn { position: relative; z-index: 1; }
+.seg-indicator { position: absolute; left: 0; top: 0; z-index: 0; border-radius: 999px;
+                 background: var(--q-primary); pointer-events: none; }
+.segmented.has-indicator .q-btn.bg-primary { background: transparent !important; }
 /* No spinner while a picture loads: frozen mid-turn it looked like a broken glyph. */
 .q-img__loading { display: none !important; }
 a.plain-link { color: inherit; text-decoration: none; }
@@ -145,10 +167,34 @@ _CHART_COLORS: dict[Theme, tuple[str, str, str, str]] = {
 }
 
 
+# The line colour of a chart's first series (ECharts' default palette), and a fill fading
+# from it under the line.
+CHART_LINE = "#5470c6"
+CHART_FILL = {
+    "type": "linear",
+    "x": 0,
+    "y": 0,
+    "x2": 0,
+    "y2": 1,
+    "colorStops": [
+        {"offset": 0, "color": "rgba(84, 112, 198, 0.35)"},
+        {"offset": 1, "color": "rgba(84, 112, 198, 0)"},
+    ],
+}
+
+
 def themed_chart(options: dict[str, Any]) -> dict[str, Any]:
-    """Colour an ECharts option's text, axes, legend and tooltip for the current theme."""
+    """Colour an ECharts option's text, axes, legend and tooltip for the current theme, and
+    give it the shared motion: lines draw in on first show and glide to new data."""
     text, muted, line, surface = _CHART_COLORS[current_theme()]
-    options = {**options, "textStyle": {"color": text}}
+    options = {
+        "animationDuration": 700,
+        "animationEasing": "cubicOut",
+        "animationDurationUpdate": 400,
+        "animationEasingUpdate": "cubicInOut",
+        **options,
+        "textStyle": {"color": text},
+    }
     for key in ("xAxis", "yAxis"):
         axes = options.get(key)
         if axes is None:
@@ -165,8 +211,15 @@ def themed_chart(options: dict[str, Any]) -> dict[str, Any]:
     if "legend" in options:
         options["legend"] = {**options["legend"], "textStyle": {"color": text}}
     if "tooltip" in options:
+        tooltip = options["tooltip"]
+        if tooltip.get("trigger") == "axis" and "axisPointer" not in tooltip:
+            # A dashed guide line follows the pointer across the chart.
+            tooltip = {
+                **tooltip,
+                "axisPointer": {"type": "line", "lineStyle": {"color": muted, "type": "dashed"}},
+            }
         options["tooltip"] = {
-            **options["tooltip"],
+            **tooltip,
             "backgroundColor": surface,
             "borderColor": line,
             "textStyle": {"color": text},
@@ -179,6 +232,7 @@ def page_frame(active: str) -> Iterator[None]:
     """Wrap a page's content in the shared navigation, header and theme."""
     theme = current_theme()
     ui.add_css(_CSS)
+    ui.add_head_html('<script src="/static/js/motion.js" defer></script>')
     ui.dark_mode(is_dark())
     ui.query("body").classes(f"theme-{theme}")
 
@@ -202,7 +256,7 @@ def page_frame(active: str) -> Iterator[None]:
         _theme_menu(theme)
         _account_chip()
 
-    with ui.column().classes("w-full max-w-[1600px] mx-auto p-4 gap-4"):
+    with ui.column().classes("w-full max-w-[1600px] mx-auto p-4 gap-4 page-enter"):
         yield
 
 

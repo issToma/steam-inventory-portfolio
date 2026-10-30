@@ -80,7 +80,6 @@ def _chart(lines: Mapping[int, pd.Series], names: Mapping[int, str]) -> dict[str
             }
         )
     return {
-        "animation": False,
         "backgroundColor": "transparent",
         "tooltip": {"trigger": "axis", ":valueFormatter": "v => v.toFixed(1) + '%'"},
         "legend": {"type": "scroll", "top": 0},

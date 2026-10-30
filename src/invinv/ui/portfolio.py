@@ -28,7 +28,14 @@ from invinv.ui.common import (
     time_until,
 )
 from invinv.ui.games import GameSwitch, game_names, searchable_games
-from invinv.ui.layout import SEGMENTED_PROPS, kpi, page_frame, themed_chart
+from invinv.ui.layout import (
+    CHART_FILL,
+    CHART_LINE,
+    SEGMENTED_PROPS,
+    kpi,
+    page_frame,
+    themed_chart,
+)
 from invinv.ui.positions import DELETE, PositionForm, add_position, position_dialog
 from invinv.ui.search_box import search_box
 
@@ -138,7 +145,6 @@ def _value_chart(history: pd.Series, period_key: str) -> dict[str, Any]:
         for ts, v in zip(index, history.to_numpy(), strict=True)
     ]
     return {
-        "animation": False,
         "backgroundColor": "transparent",
         "tooltip": {"trigger": "axis", ":valueFormatter": "v => '$' + v.toFixed(2)"},
         "grid": {"left": 80, "right": 20, "top": 20, "bottom": 30},
@@ -156,7 +162,10 @@ def _value_chart(history: pd.Series, period_key: str) -> dict[str, Any]:
                 "type": "line",
                 "data": data,
                 "showSymbol": False,
-                "areaStyle": {"opacity": 0.15},
+                "smooth": 0.2,
+                "lineStyle": {"width": 2, "color": CHART_LINE},
+                "itemStyle": {"color": CHART_LINE},
+                "areaStyle": {"color": CHART_FILL},
             }
         ],
     }
@@ -280,9 +289,10 @@ def register() -> None:
             table.on("rowClick", lambda e: ui.navigate.to(f"/item/{e.args[1]['item_id']}"))
 
             portfolio: Portfolio | None = None
+            shown_value = 0.0  # what the headline showed last, to count from
 
             async def refresh() -> None:
-                nonlocal portfolio
+                nonlocal portfolio, shown_value
                 everything = await load_portfolio(runtime.sessions)
                 games.set_games((p.appid for p in everything.positions), await game_names())
                 portfolio = (
@@ -293,6 +303,14 @@ def register() -> None:
                 hero_value.text = fmt_usd(portfolio.value)
                 hero_value.set_visibility(True)
                 hero_skeleton.set_visibility(False)
+                if round(portfolio.value, 2) != round(shown_value, 2):
+                    # The text already holds the new value; the browser counts up to it.
+                    # Wait a moment for the page to show the element and its new text.
+                    ui.run_javascript(
+                        f"setTimeout(() => window.invinvCount && invinvCount("
+                        f"'c{hero_value.id}', {shown_value:.2f}, {portfolio.value:.2f}), 60)"
+                    )
+                    shown_value = portfolio.value
                 totals.clear()
                 with totals:
                     kpi(tr("You receive after fees"), fmt_usd(portfolio.proceeds))

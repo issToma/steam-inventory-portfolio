@@ -34,7 +34,15 @@ from invinv.search import STEAM_MAX_WAIT
 from invinv.ui.alerts_page import open_item_alerts
 from invinv.ui.common import fmt_pct, fmt_usd, icon_url, rarity_color, time_ago
 from invinv.ui.games import game_names, name_of
-from invinv.ui.layout import SEGMENTED_PROPS, delta_class, kpi, page_frame, themed_chart
+from invinv.ui.layout import (
+    CHART_FILL,
+    CHART_LINE,
+    SEGMENTED_PROPS,
+    delta_class,
+    kpi,
+    page_frame,
+    themed_chart,
+)
 from invinv.ui.portfolio import GRID_COLOR
 from invinv.ui.positions import add_position
 
@@ -82,7 +90,9 @@ def _chart_options(
             "type": "line",
             "data": _points(series["price"]),
             "showSymbol": False,
-            "lineStyle": {"width": 1.5},
+            "lineStyle": {"width": 1.5, "color": CHART_LINE},
+            "itemStyle": {"color": CHART_LINE},
+            "areaStyle": {"color": CHART_FILL},
             "tooltip": price_tooltip,
         }
     ]
@@ -117,7 +127,6 @@ def _chart_options(
         "itemStyle": {"color": "#94a3b8"},
     }
     return {
-        "animation": False,
         "backgroundColor": "transparent",
         "legend": {"top": 0},
         "tooltip": {"trigger": "axis", "axisPointer": {"type": "cross"}},
