@@ -124,6 +124,7 @@ a.plain-link:has(.nav-item):hover { text-decoration: none; }
 .q-img__loading { display: none !important; }
 a.plain-link { color: inherit; text-decoration: none; }
 a.plain-link:hover { text-decoration: underline; }
+.unread-dot { min-width: 9px; min-height: 9px; padding: 0; top: 4px; right: 4px; }
 .unread-alert { border-left: 3px solid var(--q-primary); }
 """
 
@@ -261,7 +262,10 @@ def page_frame(active: str, *, animate: bool = True) -> Iterator[None]:
             _nav(NAV_BOTTOM, active)
 
     with ui.header().classes("app-header items-center gap-2 px-3 py-2"):
-        ui.button(icon="menu", on_click=drawer.toggle).props("flat round dense color=grey")
+        with ui.button(icon="menu", on_click=drawer.toggle).props("flat round dense color=grey"):
+            # Unread alerts while the navigation, which shows their count, is folded away.
+            menu_dot = ui.badge(color="red").props("floating rounded").classes("unread-dot")
+        _watch_unread(drawer, menu_dot)
         _global_search()
         ui.space()
         _collector_indicator()
@@ -300,7 +304,9 @@ def _nav(items: list[NavItem], active: str) -> None:
                 ui.icon(item.icon)
                 ui.label(tr(item.label))
                 if item.key == "alerts":
-                    _unread_badge()
+                    badge = ui.badge(color="red").props("rounded").classes("ml-auto")
+                    badge.set_visibility(False)
+                    app.storage.client["unread_badge"] = badge
             app.storage.client.setdefault("nav_rows", {})[item.key] = row
 
 
@@ -449,17 +455,26 @@ def _collector_indicator() -> None:
     ui.timer(0.1, update, once=True)
 
 
-def _unread_badge() -> None:
-    """The number of unread alerts on the Alerts entry of the navigation."""
-    badge = ui.badge(color="red").props("rounded").classes("ml-auto")
-    badge.set_visibility(False)
+def _watch_unread(drawer: ui.left_drawer, menu_dot: ui.badge) -> None:
+    """Keep the unread alerts count beside Alerts in the navigation, and a dot on the menu
+    button while the navigation is folded away."""
+    unread = 0
+
+    def show() -> None:
+        badge = app.storage.client.get("unread_badge")
+        if badge is not None:
+            badge.text = str(unread) if unread < 100 else "99+"
+            badge.set_visibility(unread > 0)
+        menu_dot.set_visibility(unread > 0 and not drawer.value)
 
     async def update() -> None:
+        nonlocal unread
         async with runtime.sessions() as session:
             unread = await repo.unread_alert_count(session)
-        badge.text = str(unread) if unread < 100 else "99+"
-        badge.set_visibility(unread > 0)
+        show()
 
+    menu_dot.set_visibility(False)
+    drawer.on_value_change(show)
     ui.timer(30, update)
     ui.timer(0.1, update, once=True)
 
