@@ -54,9 +54,18 @@ body.body--dark { --q-dark-page: var(--bg); --q-dark: var(--surface); }
 .app-header { background: var(--surface) !important; color: var(--text) !important;
               border-bottom: 1px solid var(--border); }
 .app-drawer { background: var(--surface) !important; border-right: 1px solid var(--border); }
-.nav-item { color: var(--text); border-radius: 6px; }
+.nav-item { color: var(--text); border-radius: 8px; position: relative; }
 .nav-item:hover { background: var(--hover); }
+.nav-item .q-icon { color: var(--muted); }
 .nav-item.active { background: var(--hover); font-weight: 600; }
+.nav-item.active .q-icon { color: var(--q-primary); }
+/* A short accent bar marks the page shown. */
+.nav-item.active::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px;
+                           width: 3px; border-radius: 3px; background: var(--q-primary); }
+a.plain-link:hover .nav-item { text-decoration: none; }
+a.plain-link:has(.nav-item):hover { text-decoration: none; }
+/* Settings sit apart at the bottom, under a hairline. */
+.nav-bottom { border-top: 1px solid var(--border); padding-top: 8px; }
 .nav-item.disabled { color: var(--muted); opacity: .6; }
 .text-muted { color: var(--muted) !important; }
 .period-card { border-color: var(--q-primary) !important; }
@@ -99,6 +108,9 @@ body.body--dark { --q-dark-page: var(--bg); --q-dark: var(--surface); }
   .q-table tbody tr, .nav-item, .kpi, .q-btn, .q-card {
     transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease; }
   .q-table tbody tr:hover { background: var(--hover); }
+  .nav-item .q-icon { transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), color 0.18s; }
+  .nav-item:hover .q-icon { transform: translateX(1px); }
+  .nav-settings:hover .q-icon { transform: rotate(60deg); }
   .seg-indicator { transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1),
                                width 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
 }
@@ -245,7 +257,8 @@ def page_frame(active: str, *, animate: bool = True) -> Iterator[None]:
                 ui.label(APP_FULL_NAME).classes("text-caption text-muted leading-tight")
         _nav(NAV, active)
         ui.space()
-        _nav(NAV_BOTTOM, active)
+        with ui.element("div").classes("w-full nav-bottom"):
+            _nav(NAV_BOTTOM, active)
 
     with ui.header().classes("app-header items-center gap-2 px-3 py-2"):
         ui.button(icon="menu", on_click=drawer.toggle).props("flat round dense color=grey")
@@ -281,7 +294,9 @@ def _nav(items: list[NavItem], active: str) -> None:
                 continue
             with (
                 ui.link(target=item.path).classes("plain-link w-full"),
-                ui.row().classes(f"{classes} {'active' if item.key == active else ''}") as row,
+                ui.row().classes(
+                    f"{classes} nav-{item.key} {'active' if item.key == active else ''}"
+                ) as row,
             ):
                 ui.icon(item.icon)
                 ui.label(tr(item.label))
