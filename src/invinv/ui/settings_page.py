@@ -90,6 +90,7 @@ async def _games_card() -> None:
     async with runtime.sessions() as session:
         games = await repo.inventory_games(session)
         disabled = await repo.disabled_games(session)
+        sellable = await repo.sellable_counts(session)
     with ui.card().classes("w-full"):
         if not games:
             ui.label(tr("The games of your inventory appear here after the first import.")).classes(
@@ -97,14 +98,23 @@ async def _games_card() -> None:
             )
             return
         ui.label(
-            tr("Choose which games' inventories are imported. Changes apply at the next sync.")
+            tr(
+                "Choose which games' inventories are imported. Changes apply at the next sync. "
+                "Only items that can be sold on the market count in the portfolio."
+            )
         ).classes("text-caption text-muted")
         for game in games:
             with ui.row().classes("w-full items-center no-wrap gap-3"):
                 if game.icon_url:
                     ui.image(game.icon_url).classes("w-8 h-8 rounded")
                 ui.label(game.name).classes("grow")
-                ui.label(tr_n(game.items, "{n} item", "{n} items")).classes("text-muted")
+                ui.label(
+                    tr(
+                        "{sellable} of {total} sellable",
+                        sellable=f"{sellable.get(game.appid, 0):,}",
+                        total=tr_n(game.items, "{n} item", "{n} items"),
+                    )
+                ).classes("text-muted")
 
                 ui.switch(
                     value=game.appid not in disabled,

@@ -107,7 +107,11 @@ RU: dict[str, str] = {
     "Appearance": "Внешний вид",
     "Games": "Игры",
     "The games of your inventory appear here after the first import.": "Игры вашего инвентаря появятся здесь после первого импорта.",
-    "Choose which games' inventories are imported. Changes apply at the next sync.": "Выберите, инвентари каких игр импортировать. Изменения применятся при следующей синхронизации.",
+    "Choose which games' inventories are imported. Changes apply at the next sync. Only items that can be sold on the market count in the portfolio.": (
+        "Выберите, инвентари каких игр импортировать. Изменения применятся при следующей "
+        "синхронизации. В портфеле учитываются только предметы, которые можно продать на площадке."
+    ),
+    "{sellable} of {total} sellable": "{sellable} из {total} можно продать",
     "Saved; the inventory is synced again now.": "Сохранено; инвентарь сейчас синхронизируется заново.",
     "Data collection": "Сбор данных",
     "Collector": "Сборщик",

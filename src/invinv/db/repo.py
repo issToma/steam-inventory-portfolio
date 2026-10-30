@@ -1002,6 +1002,17 @@ async def set_game_enabled(session: AsyncSession, appid: int, enabled: bool) -> 
     await set_setting(session, SETTING_DISABLED_GAMES, json.dumps(sorted(disabled)))
 
 
+async def sellable_counts(session: AsyncSession) -> dict[int, int]:
+    """Items per game in the inventory positions: the marketable ones the portfolio counts."""
+    result = await session.execute(
+        select(Item.appid, func.sum(Holding.quantity))
+        .join(Item, Holding.item_id == Item.id)
+        .where(Holding.source == SOURCE_INVENTORY, _active_holding())
+        .group_by(Item.appid)
+    )
+    return {appid: int(quantity) for appid, quantity in result}
+
+
 async def games_in_use(session: AsyncSession) -> list[int]:
     """Games of the tracked items (portfolio or watchlist), most items first."""
     result = await session.execute(
