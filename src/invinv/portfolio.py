@@ -157,9 +157,8 @@ class Portfolio:
     pnl: float
     unpriced: int
     value_history: pd.Series  # daily, USD
-    value_frame: pd.DataFrame  # the same per position (value_frame())
-    # The day each position's item first sold: from then on it counts in value_history.
-    item_starts: tuple[pd.Timestamp, ...] = ()
+    # The item whose first sale starts value_history (the newest on the market), if any.
+    newest_item: str | None = None
 
 
 def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None) -> Portfolio:
@@ -227,7 +226,6 @@ def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None
         for p, price, value, proceeds, cost, pnl, metrics, computed, source, changes in rows
     ]
     positions.sort(key=lambda pos: pos.value or 0, reverse=True)
-    frame = value_frame(inputs, dailies)
     with_pnl = [pos for pos in positions if pos.pnl is not None]
     return Portfolio(
         positions=positions,
@@ -236,10 +234,19 @@ def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None
         cost=sum(pos.cost for pos in with_pnl if pos.cost is not None),
         pnl=sum(pos.pnl for pos in with_pnl if pos.pnl is not None),
         unpriced=sum(1 for pos in positions if pos.price is None),
-        value_history=frame.sum(axis=1),
-        value_frame=frame,
-        item_starts=tuple(daily.index[0] for daily in dailies.values() if not daily.empty),
+        value_history=value_history(inputs, dailies),
+        newest_item=_newest_item(inputs, dailies),
     )
+
+
+def _newest_item(inputs: Sequence[PositionInput], dailies: Mapping[int, pd.Series]) -> str | None:
+    """The item that came to the market last, which is where value_history() starts."""
+    firsts = []
+    for p in inputs:
+        daily = dailies.get(p.holding_id)
+        if daily is not None and not daily.empty:
+            firsts.append((daily.index[0], p.name))
+    return max(firsts)[1] if firsts else None
 
 
 def _changes(
@@ -259,17 +266,10 @@ def value_history(
 ) -> pd.Series:
     """What today's positions were worth on every past day, at that day's prices.
 
-    Each position counts from the day its item first sold on the market: before that the
-    item did not exist, so the value steps up on such days. `dailies` holds daily price
-    series already built.
+    It starts on the day the last of the positions' items had its first sale: before that
+    the portfolio as it is today could not have existed, and comparing with a handful of
+    older items would be misleading. `dailies` holds daily price series already built.
     """
-    return value_frame(inputs, dailies).sum(axis=1)
-
-
-def value_frame(
-    inputs: Sequence[PositionInput], dailies: Mapping[int, pd.Series] | None = None
-) -> pd.DataFrame:
-    """Every position's value on every day (days x positions); empty before its first sale."""
     columns: list[tuple[np.ndarray, np.ndarray]] = []
     for p in inputs:
         daily = dailies.get(p.holding_id) if dailies else None
@@ -281,41 +281,15 @@ def value_frame(
         days = pd.DatetimeIndex(daily.index).tz_convert(None).normalize().to_numpy()
         columns.append((days, daily.to_numpy(dtype=float) * p.quantity))
     if not columns:
-        return pd.DataFrame()
+        return pd.Series(dtype=float)
     # One matrix (day x position) instead of aligning hundreds of series one by one.
     all_days = np.unique(np.concatenate([days for days, _ in columns]))
     matrix = np.full((len(all_days), len(columns)), np.nan)
     for column, (days, values) in enumerate(columns):
         matrix[np.searchsorted(all_days, days), column] = values
     frame = pd.DataFrame(matrix, index=pd.DatetimeIndex(all_days).tz_localize(UTC))
-    # Between sales a position keeps its last value; before its first sale it has none.
-    return frame.ffill()
-
-
-# For all time, stats start once the items on the market made up this share of today's value:
-# from the very first item on, they would describe one early item rather than the portfolio.
-ALL_TIME_SHARE = 0.5
-
-
-def like_for_like(frame: pd.DataFrame, period: timedelta | None) -> tuple[pd.Series, int]:
-    """The value over the period of the positions that were on the market at its start,
-    and how many they are: items that came later would show up as growth.
-
-    For all time (None) the start is the first day on which the positions already on the
-    market made up ALL_TIME_SHARE of today's value.
-    """
-    if frame.empty:
-        return pd.Series(dtype=float), 0
-    days = pd.DatetimeIndex(frame.index)
-    if period is not None:
-        start = max(int(days.searchsorted(days[-1] - period, side="right")) - 1, 0)
-    else:
-        today = frame.iloc[-1].fillna(0).to_numpy()
-        on_market = frame.notna().to_numpy()
-        share = (on_market * today).sum(axis=1) / max(today.sum(), 1e-9)
-        start = min(int(np.argmax(share >= ALL_TIME_SHARE)), len(days) - 1)
-    present = frame.iloc[start].notna().to_numpy()
-    return frame.iloc[start:, present].sum(axis=1), int(present.sum())
+    # Days on which every position already has a price.
+    return frame.ffill().dropna().sum(axis=1)
 
 
 # Valued portfolios by game filter (None = every game), with the fingerprint they match.

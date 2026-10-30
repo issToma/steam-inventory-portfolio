@@ -6,7 +6,7 @@ import pytest
 
 from invinv.analysis import to_frame
 from invinv.db.repo import StoredPoint
-from invinv.portfolio import PositionInput, like_for_like, period_stats, value_positions
+from invinv.portfolio import PositionInput, period_stats, value_positions
 from invinv.pricing import Listing
 
 DAY = datetime(2026, 10, 1, tzinfo=UTC)
@@ -94,7 +94,7 @@ def test_position_change_per_period() -> None:
     assert pos.change("All") == pytest.approx(3.0)
 
 
-def test_each_item_counts_from_its_first_sale() -> None:
+def test_value_history_starts_when_every_item_is_on_the_market() -> None:
     older = position(1, [10, 10, 10, 10], quantity=1)
     newer = PositionInput(
         holding_id=2,
@@ -114,15 +114,11 @@ def test_each_item_counts_from_its_first_sale() -> None:
         ),
     )
 
-    portfolio = value_positions([older, newer])
+    history = value_positions([older, newer]).value_history
 
-    # The newer item counts from its first sale on day 2: the value steps up then.
-    assert list(portfolio.value_history) == [10, 10, 15, 16]
-    assert portfolio.value_history.index[0] == pd.Timestamp(DAY)
-    assert sorted(portfolio.item_starts) == [
-        pd.Timestamp(DAY),
-        pd.Timestamp(DAY + timedelta(days=2)),
-    ]
+    assert list(history) == [15, 16]
+    assert history.index[0] == pd.Timestamp(DAY + timedelta(days=2))
+    assert value_positions([older, newer]).newest_item == "item 2"
 
 
 def test_price_is_the_cheapest_listing_not_an_odd_last_sale() -> None:
@@ -162,36 +158,3 @@ def test_without_listings_the_price_is_the_median_of_recent_sales() -> None:
     (position_,) = value_positions([no_listing]).positions
 
     assert (position_.price, position_.price_source) == (0.03, "sales")
-
-
-def test_period_stats_count_only_items_already_on_the_market() -> None:
-    older = position(1, [10, 10, 11, 12], quantity=1)
-    newer = PositionInput(  # first sold on day 2
-        holding_id=2,
-        item_id=2,
-        name="item 2",
-        source="manual",
-        location=None,
-        appid=730,
-        quantity=1,
-        buy_price_usd=None,
-        history=to_frame(
-            [
-                StoredPoint(DAY + timedelta(days=2 + i), "day", Decimal("100"), 20, 1)
-                for i in range(2)
-            ],
-            {},
-        ),
-    )
-    frame = value_positions([older, newer]).value_frame
-
-    same, counted = like_for_like(frame, None)
-
-    # For all time the stats start once half of today's value (112) was on the market:
-    # the newer item, worth 100, came on day 2; then both count: 111 -> 112.
-    assert counted == 2
-    assert list(same) == [111, 112]
-    # Over a period starting before the newer item, it would show as growth: left out.
-    same, counted = like_for_like(frame, timedelta(days=3))
-    assert counted == 1
-    assert list(same) == [10, 10, 11, 12]

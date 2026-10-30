@@ -5,13 +5,12 @@ from nicegui import ui
 
 from invinv.core.parsers import SearchResult
 from invinv.db import repo
-from invinv.i18n import tr, tr_n
+from invinv.i18n import tr
 from invinv.portfolio import (
     PERIODS,
     PeriodStats,
     Portfolio,
     Position,
-    like_for_like,
     load_portfolio,
     period_stats,
 )
@@ -166,6 +165,7 @@ def register() -> None:
                         _fit_cards(period_group, 3)
                         with ui.row().classes("items-baseline gap-2"):
                             period_caption = ui.label().classes("text-overline text-primary")
+                            period_since = ui.label().classes("text-caption text-muted")
                         stats = ui.row().classes("w-full gap-3 items-stretch no-wrap grow")
                 chart_skeleton = ui.skeleton(height="18rem").classes("w-full")
                 chart = ui.echart({}).classes("w-full h-72")
@@ -270,35 +270,29 @@ def register() -> None:
                     if period == "All"
                     else tr("For the period · {period}", period=period)
                 )
-                same_items, counted = like_for_like(portfolio.value_frame, PERIODS[period])
-                if period == "All" and not same_items.empty:
-                    period_caption.text += " · " + tr(
-                        "since {date}, when half of today's value was on the market",
-                        date=f"{same_items.index[0]:%Y-%m-%d}",
-                    )
-                if counted < len(portfolio.value_frame.columns):
-                    # Items that came to the market later would count as growth.
-                    period_caption.text += " · " + tr_n(
-                        counted,
-                        "by {n} item on the market at its start",
-                        "by {n} items on the market at its start",
-                    )
                 history = portfolio.value_history
                 span = PERIODS[period]
-                # Items that came to the market within the shown period make it step up.
-                newcomers = 0
-                if not history.empty:
-                    shown_from = history.index[0] if span is None else history.index[-1] - span
-                    newcomers = sum(1 for start in portfolio.item_starts if start > shown_from)
-                start_note.set_visibility(newcomers > 0)
-                start_text.text = tr_n(
-                    newcomers,
-                    "{n} of your items first sold within this period. An item counts from its "
-                    "first sale, so the chart steps up on that day.",
-                    "{n} of your items first sold within this period. Each counts from its "
-                    "first sale, so the chart steps up on those days.",
+                # The period reaches back before the chart starts (always so for All).
+                cut = not history.empty and (
+                    span is None or history.index[0] > history.index[-1] - span
                 )
-                _period_stats(stats, period_stats(same_items, None))
+                period_since.text = (
+                    tr(
+                        "since {date}, when the last of your items came to the market",
+                        date=f"{history.index[0]:%Y-%m-%d}",
+                    )
+                    if cut
+                    else ""
+                )
+                start_note.set_visibility(cut and portfolio.newest_item is not None)
+                if portfolio.newest_item and not history.empty:
+                    start_text.text = tr(
+                        "The chart starts on {date}: that day your newest item, {item}, first "
+                        "sold. Before it, the portfolio as it is today did not exist.",
+                        date=f"{history.index[0]:%Y-%m-%d}",
+                        item=portfolio.newest_item,
+                    )
+                _period_stats(stats, period_stats(portfolio.value_history, PERIODS[period]))
                 _movers(movers, portfolio, period)
 
             async def add_manual(result: SearchResult) -> bool:
