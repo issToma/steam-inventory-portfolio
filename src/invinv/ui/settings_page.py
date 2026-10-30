@@ -90,7 +90,6 @@ async def _games_card() -> None:
     async with runtime.sessions() as session:
         games = await repo.inventory_games(session)
         disabled = await repo.disabled_games(session)
-        sellable = await repo.sellable_counts(session)
     with ui.card().classes("w-full"):
         if not games:
             ui.label(tr("The games of your inventory appear here after the first import.")).classes(
@@ -108,11 +107,12 @@ async def _games_card() -> None:
                 if game.icon_url:
                     ui.image(game.icon_url).classes("w-8 h-8 rounded")
                 ui.label(game.name).classes("grow")
+                total = tr_n(game.items, "{n} item", "{n} items")
                 ui.label(
-                    tr(
-                        "{sellable} of {total} sellable",
-                        sellable=f"{sellable.get(game.appid, 0):,}",
-                        total=tr_n(game.items, "{n} item", "{n} items"),
+                    total
+                    if game.sellable is None
+                    else tr(
+                        "{sellable} of {total} sellable", sellable=f"{game.sellable:,}", total=total
                     )
                 ).classes("text-muted")
 

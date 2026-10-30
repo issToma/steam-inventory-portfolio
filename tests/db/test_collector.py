@@ -229,9 +229,10 @@ async def test_inventory_of_every_game_is_imported(sessions: SessionMaker) -> No
     assert market.calls[1:] == ["730/2", "252490/2"]
     async with sessions() as session:
         held = sorted((i.appid, i.market_hash_name) for _, i in await repo.active_holdings(session))
-        games = [g.name for g in await repo.inventory_games(session)]
+        games = [(g.name, g.sellable) for g in await repo.inventory_games(session)]
     assert held == [(730, "Kilowatt Case"), (252490, "Tempered Hoodie")]
-    assert games == ["Counter-Strike 2", "Rust"]
+    # The sellable count comes from this import, not from the positions.
+    assert games == [("Counter-Strike 2", 1), ("Rust", 1)]
 
 
 async def test_switched_off_game_is_not_imported(sessions: SessionMaker) -> None:

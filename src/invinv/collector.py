@@ -332,7 +332,27 @@ class Collector:
                 except (SteamError, SteamFormatError) as exc:
                     log.warning("inventory of %s (%d) failed: %s", app.name, app.appid, exc)
                     failed.add(app.appid)
+        sellable: dict[int, int] = {}
+        for entry in items:
+            if entry.marketable:
+                sellable[entry.appid] = sellable.get(entry.appid, 0) + entry.amount
         async with self._sessions() as session:
+            await repo.save_inventory_games(
+                session,
+                [
+                    repo.InventoryGame(
+                        a.appid,
+                        a.name,
+                        a.icon_url,
+                        sum(a.contexts.values()),
+                        # Unknown for games not read this time (switched off or failed).
+                        None
+                        if a.appid in disabled or a.appid in failed
+                        else sellable.get(a.appid, 0),
+                    )
+                    for a in apps
+                ],
+            )
             count = await repo.sync_inventory(session, items, untouched=frozenset(failed))
             await repo.set_setting(session, repo.SETTING_INVENTORY_POSITIONS, str(count))
             await session.commit()
