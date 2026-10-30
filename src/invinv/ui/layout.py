@@ -281,10 +281,20 @@ def _nav(items: list[NavItem], active: str) -> None:
                 continue
             with (
                 ui.link(target=item.path).classes("plain-link w-full"),
-                ui.row().classes(f"{classes} {'active' if item.key == active else ''}"),
+                ui.row().classes(f"{classes} {'active' if item.key == active else ''}") as row,
             ):
                 ui.icon(item.icon)
                 ui.label(tr(item.label))
+            app.storage.client.setdefault("nav_rows", {})[item.key] = row
+
+
+def highlight_nav(active: str) -> None:
+    """Mark the navigation entry of the page now shown (the shell swaps pages in place)."""
+    for key, row in app.storage.client.get("nav_rows", {}).items():
+        if key == active:
+            row.classes(add="active")
+        else:
+            row.classes(remove="active")
 
 
 def kpi(label: str, value: str, color: str = "", tooltip: str = "", *, hint: str = "") -> None:

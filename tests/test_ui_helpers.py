@@ -29,3 +29,11 @@ def test_rarity_colour_per_game() -> None:
 def test_sparkline_points() -> None:
     assert sparkline_points([1.0]) == ""
     assert sparkline_points([1.0, 2.0], width=10, height=10) == "0.0,9.0 10.0,1.0"
+
+
+def test_nav_key_of_a_path() -> None:
+    from invinv.ui.shell import nav_key
+
+    assert nav_key("/") == "portfolio"
+    assert nav_key("/market?x=1") == "market"
+    assert nav_key("/item/5") == ""
