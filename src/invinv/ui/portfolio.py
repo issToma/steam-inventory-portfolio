@@ -271,17 +271,20 @@ def register() -> None:
                     else tr("For the period · {period}", period=period)
                 )
                 history = portfolio.value_history
+                span = PERIODS[period]
+                # The period reaches back before the chart starts (always so for All).
+                cut = not history.empty and (
+                    span is None or history.index[0] > history.index[-1] - span
+                )
                 period_since.text = (
                     tr(
                         "since {date}, when the last of your items came to the market",
                         date=f"{history.index[0]:%Y-%m-%d}",
                     )
-                    if period == "All" and not history.empty
+                    if cut
                     else ""
                 )
-                start_note.set_visibility(
-                    period == "All" and not history.empty and portfolio.newest_item is not None
-                )
+                start_note.set_visibility(cut and portfolio.newest_item is not None)
                 if portfolio.newest_item and not history.empty:
                     start_text.text = tr(
                         "The chart starts on {date}: that day your newest item, {item}, first "
