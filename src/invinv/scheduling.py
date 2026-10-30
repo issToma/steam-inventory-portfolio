@@ -46,7 +46,7 @@ WATCHED_PRIORITY = 10
 # Listing jobs run ahead of history jobs: an item is valued once its listing is known.
 LISTING_PRIORITY_BONUS = 20
 UNKNOWN_PRIORITY = 4
-_RARITY_PRIORITY = {
+RARITY_PRIORITY = {
     "★": 9,
     "Contraband": 9,
     "Arcana": 9,
@@ -76,6 +76,6 @@ def fetch_priority(item_type: str | None, *, watched: bool) -> int:
     if watched:
         return WATCHED_PRIORITY
     for word in (item_type or "").split():
-        if word in _RARITY_PRIORITY:
-            return _RARITY_PRIORITY[word]
+        if word in RARITY_PRIORITY:
+            return RARITY_PRIORITY[word]
     return UNKNOWN_PRIORITY

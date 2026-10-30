@@ -9,10 +9,12 @@ from nicegui import app, ui
 
 from invinv.analysis import MissingRateError, compare_line, price_views, to_frame
 from invinv.db import repo
-from invinv.i18n import tr
+from invinv.i18n import tr, tr_n
+from invinv.market import MIN_INDEX_ITEMS, IndexLine, MarketRow, indices, load_rows
 from invinv.portfolio import PERIODS, load_portfolio
 from invinv.runtime import runtime
-from invinv.ui.games import game_names, name_of
+from invinv.ui.common import NAME_CELL_SLOT, fmt_pct, icon_url, pct_color, rarity_color
+from invinv.ui.games import GameSwitch, game_names, name_of
 from invinv.ui.layout import SEGMENTED_PROPS, page_frame, themed_chart
 from invinv.ui.portfolio import GRID_COLOR, period_options
 
@@ -68,7 +70,7 @@ def _chart(lines: Mapping[int, pd.Series], names: Mapping[int, str]) -> dict[str
         index = pd.DatetimeIndex(line.index)
         series.append(
             {
-                "name": names[item_id].split(" · ")[0],
+                "name": names[item_id],
                 "type": "line",
                 "showSymbol": False,
                 "data": [
@@ -95,23 +97,89 @@ def _chart(lines: Mapping[int, pd.Series], names: Mapping[int, str]) -> dict[str
     }
 
 
+def _rating_columns() -> list[dict[str, Any]]:
+    return [
+        {"name": "name", "label": tr("Item"), "field": "name", "align": "left", "sortable": True},
+        {
+            "name": "segment",
+            "label": tr("Segment"),
+            "field": "segment",
+            "align": "left",
+            "sortable": True,
+        },
+        {
+            "name": "price",
+            "label": tr("Price"),
+            "field": "price",
+            "align": "right",
+            "sortable": True,
+            ":format": "v => v == null ? '—' : '$' + v.toFixed(2)",
+        },
+        {
+            "name": "change",
+            "label": tr("Change"),
+            "field": "change",
+            "align": "right",
+            "sortable": True,
+            ":format": "v => v == null ? '—' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%'",
+        },
+        {
+            "name": "sales",
+            "label": tr("Sales/day"),
+            "field": "sales",
+            "align": "right",
+            "sortable": True,
+            ":format": "v => v == null ? '—' : v.toFixed(0)",
+        },
+    ]
+
+
+def _rating_rows(rows: Sequence[MarketRow], period_key: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": r.item.id,
+            "appid": r.item.appid,
+            "name": r.item.market_hash_name,
+            "icon": icon_url(r.item.icon_url),
+            "color": rarity_color(r.item.rarity, r.item.quality, r.item.name_color, r.item.appid),
+            "segment": r.segment or "—",
+            "price": r.price,
+            "change": r.changes.get(period_key),
+            "sales": r.sales_per_day,
+        }
+        for r in rows
+    ]
+
+
+def _index_chart(lines: Sequence[IndexLine], names: Mapping[int, str]) -> dict[str, Any]:
+    labelled = {i: pd.Series(line.line) for i, line in enumerate(lines[:MAX_COMPARED])}
+    titles = {
+        i: f"{name_of(line.appid, dict(names))} · {line.segment} ({line.items})"
+        for i, line in enumerate(lines[:MAX_COMPARED])
+    }
+    return _chart(labelled, titles)
+
+
 def register() -> None:
     @ui.page("/market")
     async def market_page() -> None:
         with page_frame("market"):
-            with ui.column().classes("gap-0"):
-                ui.label(tr("Market")).classes("text-h5")
-                ui.label(tr("How the prices of your items compare and move.")).classes("text-muted")
-
-            with ui.card().classes("w-full"):
-                with ui.row().classes("w-full items-center"):
-                    ui.label(tr("Compare")).classes("text-h6")
-                    ui.space()
-                    period_toggle = (
-                        ui.toggle(period_options(), value="30D")
-                        .props(SEGMENTED_PROPS)
-                        .classes("segmented")
+            with ui.row().classes("w-full items-center"):
+                with ui.column().classes("gap-0"):
+                    ui.label(tr("Market")).classes("text-h5")
+                    ui.label(tr("How the prices of your items compare and move.")).classes(
+                        "text-muted"
                     )
+                ui.space()
+                period_toggle = (
+                    ui.toggle(period_options(), value="30D")
+                    .props(SEGMENTED_PROPS)
+                    .classes("segmented")
+                )
+
+            # --- Compare (F10) -----------------------------------------------------------
+            with ui.card().classes("w-full"):
+                ui.label(tr("Compare")).classes("text-h6")
                 ui.label(
                     tr(
                         "Each line is the item's price as a percentage of where it stood at the "
@@ -135,6 +203,43 @@ def register() -> None:
                 )
                 chart = ui.echart({}).classes("w-full h-[460px]")
 
+            # --- Rating (F8) -------------------------------------------------------------
+            with ui.card().classes("w-full"):
+                ui.label(tr("Rating")).classes("text-h6")
+                ui.label(
+                    tr(
+                        "Your portfolio and watchlist items. Sort by change for the top gainers "
+                        "and losers of the period, by sales for the most traded."
+                    )
+                ).classes("text-caption text-muted")
+                games = GameSwitch(on_change=lambda: show_rating())
+                table = ui.table(
+                    columns=_rating_columns(),
+                    rows=[],
+                    row_key="id",
+                    pagination={"rowsPerPage": 25, "sortBy": "change", "descending": True},
+                ).classes("w-full")
+                table.add_slot("body-cell-name", NAME_CELL_SLOT)
+                table.on("rowClick", lambda e: ui.navigate.to(f"/item/{e.args[1]['id']}"))
+
+            # --- Indices (F9) ------------------------------------------------------------
+            with ui.card().classes("w-full"):
+                ui.label(tr("Indices")).classes("text-h6")
+                ui.label(
+                    tr(
+                        "Price movement of the typical (median) item of each segment (game and "
+                        "rarity) with at least {n} of your items, at 100% at the start of the "
+                        "period.",
+                        n=MIN_INDEX_ITEMS,
+                    )
+                ).classes("text-caption text-muted")
+                index_chart = ui.echart({}).classes("w-full h-[400px]")
+                index_list = ui.column().classes("w-full gap-1")
+
+            names = await game_names()
+            rows = await load_rows(runtime.sessions, datetime.now(UTC))
+            games.set_games((r.item.appid for r in rows), names)
+
             async def redraw() -> None:
                 chosen = [int(i) for i in (picker.value or [])]
                 if len(chosen) > MAX_COMPARED:
@@ -150,9 +255,45 @@ def register() -> None:
                     _lines, points, fx, period_toggle.value, datetime.now(UTC)
                 )
                 chart.options.clear()
-                chart.options.update(themed_chart(_chart(lines, candidates)))
+                titles = {i: candidates[i].split(" · ")[0] for i in lines}
+                chart.options.update(themed_chart(_chart(lines, titles)))
                 chart.update()
 
+            async def show_rating() -> None:
+                shown = [r for r in rows if games.appid in (None, r.item.appid)]
+                table.rows = _rating_rows(shown, period_toggle.value)
+                table.update()
+
+            async def show_indices() -> None:
+                lines = await asyncio.to_thread(
+                    indices, rows, PERIODS[period_toggle.value], datetime.now(UTC)
+                )
+                index_chart.options.clear()
+                index_chart.options.update(themed_chart(_index_chart(lines, names)))
+                index_chart.update()
+                index_list.clear()
+                with index_list:
+                    if not lines:
+                        ui.label(tr("Not enough items in any segment yet.")).classes("text-muted")
+                    for line in lines:
+                        with ui.row().classes("w-full items-center no-wrap gap-3"):
+                            ui.label(f"{name_of(line.appid, names)} · {line.segment}").classes(
+                                "grow"
+                            )
+                            ui.label(tr_n(line.items, "{n} item", "{n} items")).classes(
+                                "text-muted"
+                            )
+                            ui.label(fmt_pct(line.change)).classes(
+                                f"w-20 text-right {pct_color(line.change)}"
+                            )
+
+            async def period_changed() -> None:
+                await show_rating()
+                await redraw()
+                await show_indices()
+
             picker.on_value_change(redraw)
-            period_toggle.on_value_change(redraw)
+            period_toggle.on_value_change(period_changed)
+            await show_rating()
             await redraw()
+            await show_indices()

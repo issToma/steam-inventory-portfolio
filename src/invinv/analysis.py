@@ -199,7 +199,11 @@ def compare_line(views: PriceViews, period: timedelta | None, now: datetime) -> 
     """
     # Hourly points are noisy beyond a week: longer periods read better daily.
     short = period is not None and period <= timedelta(days=7)
-    robust = views.robust if short else views.robust_daily
+    return normalized_line(views.robust if short else views.robust_daily, period, now)
+
+
+def normalized_line(robust: pd.Series, period: timedelta | None, now: datetime) -> pd.Series:
+    """compare_line() of a given robust series."""
     if robust.empty:
         return robust
     index = pd.DatetimeIndex(robust.index)

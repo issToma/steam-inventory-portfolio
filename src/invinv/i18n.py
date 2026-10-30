@@ -470,4 +470,17 @@ RU: dict[str, str] = {
         "Продастся только {sold}: заявки закончатся."
     ),
     "{n} pcs": "{n} шт.",
+    # Market: rating and indices
+    "Rating": "Рейтинг",
+    "Segment": "Сегмент",
+    "Indices": "Индексы",
+    "Your portfolio and watchlist items. Sort by change for the top gainers and losers of the period, by sales for the most traded.": (
+        "Предметы из портфеля и watchlist. Сортировка по изменению — лидеры роста и падения за "
+        "период, по продажам — самые продаваемые."
+    ),
+    "Price movement of the typical (median) item of each segment (game and rarity) with at least {n} of your items, at 100% at the start of the period.": (
+        "Динамика цены типичного (медианного) предмета каждого сегмента (игра и редкость), в "
+        "котором не меньше {n} ваших предметов, от 100% на начало периода."
+    ),
+    "Not enough items in any segment yet.": "Пока ни в одном сегменте не хватает предметов.",
 }

@@ -310,17 +310,16 @@ _item_cache: dict[int, tuple[tuple[object, ...], ItemPrices]] = {}
 _BATCH = 25
 
 
-async def _compute_portfolio(sessions: SessionMaker, appid: int | None = None) -> Portfolio:
+async def cached_item_prices(
+    sessions: SessionMaker, items: Sequence[Item]
+) -> dict[int, ItemPrices]:
+    """ItemPrices of the items, computed again only for those whose history, the rates or
+    the fee changed since."""
     async with sessions() as session:
-        holdings = [
-            (holding, item)
-            for holding, item in await repo.active_holdings(session)
-            if appid is None or item.appid == appid
-        ]
         fx = await repo.latest_fx(session)
-        item_ids = list({item.id for _, item in holdings})
+        item_ids = list({item.id for item in items})
         stamps = await repo.history_stamps(session, item_ids)
-    fees = {item.id: fee_rate(item) for _, item in holdings}
+    fees = {item.id: fee_rate(item) for item in items}
     rates = tuple(sorted(fx.items()))
     keys = {item_id: (stamps.get(item_id), rates, fees[item_id]) for item_id in item_ids}
     stale = [i for i in item_ids if i not in _item_cache or _item_cache[i][0] != keys[i]]
@@ -331,6 +330,17 @@ async def _compute_portfolio(sessions: SessionMaker, appid: int | None = None) -
         computed = await asyncio.to_thread(_compute_items, points, fx, fees)
         for item_id, prices in computed.items():
             _item_cache[item_id] = (keys[item_id], prices)
+    return {item_id: _item_cache[item_id][1] for item_id in item_ids}
+
+
+async def _compute_portfolio(sessions: SessionMaker, appid: int | None = None) -> Portfolio:
+    async with sessions() as session:
+        holdings = [
+            (holding, item)
+            for holding, item in await repo.active_holdings(session)
+            if appid is None or item.appid == appid
+        ]
+    prices = await cached_item_prices(sessions, [item for _, item in holdings])
     inputs = [
         PositionInput(
             holding_id=holding.id,
@@ -347,8 +357,8 @@ async def _compute_portfolio(sessions: SessionMaker, appid: int | None = None) -
             pinned=holding.pinned,
             appid=item.appid,
             name_color=item.name_color,
-            publisher_fee=fees[item.id],
-            prices=_item_cache[item.id][1],
+            publisher_fee=fee_rate(item),
+            prices=prices[item.id],
             listing=listing_of(item),
         )
         for holding, item in holdings
