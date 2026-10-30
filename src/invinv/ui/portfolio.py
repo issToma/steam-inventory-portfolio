@@ -33,7 +33,7 @@ from invinv.ui.layout import (
     CHART_LINE,
     SEGMENTED_PROPS,
     kpi,
-    page_frame,
+    page_content,
     themed_chart,
 )
 from invinv.ui.positions import DELETE, PositionForm, add_position, position_dialog
@@ -171,321 +171,318 @@ def _value_chart(history: pd.Series, period_key: str) -> dict[str, Any]:
     }
 
 
-def register() -> None:
-    @ui.page("/")
-    async def portfolio_page() -> None:
-        with page_frame("portfolio"):
-            with ui.row().classes("w-full items-center"):
-                ui.label(tr("Portfolio")).classes("text-h5")
+async def content() -> None:
+    """The portfolio page's content (in the app shell, see ui.shell)."""
+    with page_content():
+        with ui.row().classes("w-full items-center"):
+            ui.label(tr("Portfolio")).classes("text-h5")
+            ui.space()
+            ui.button(tr("Add item"), icon="add", on_click=lambda: open_add_dialog())
+
+        banner = ui.column().classes("w-full")
+        games = GameSwitch(on_change=lambda: refresh())
+
+        # --- Value now, its change over the chosen period, and the chart ------------
+        with ui.card().classes("w-full gap-4"):
+            with ui.row().classes("w-full items-start no-wrap"):
+                with ui.column().classes("gap-1"):
+                    ui.label(tr("Portfolio value")).classes("text-caption text-muted")
+                    with ui.row().classes("items-center gap-3"):
+                        hero_value = ui.label().classes("hero-value")
+                        hero_value.set_visibility(False)
+                        hero_skeleton = ui.skeleton(width="12rem", height="2.6rem")
+                        hero_change = ui.label().classes("delta-pill")
+                        hero_change.set_visibility(False)
                 ui.space()
-                ui.button(tr("Add item"), icon="add", on_click=lambda: open_add_dialog())
-
-            banner = ui.column().classes("w-full")
-            games = GameSwitch(on_change=lambda: refresh())
-
-            # --- Value now, its change over the chosen period, and the chart ------------
-            with ui.card().classes("w-full gap-4"):
-                with ui.row().classes("w-full items-start no-wrap"):
-                    with ui.column().classes("gap-1"):
-                        ui.label(tr("Portfolio value")).classes("text-caption text-muted")
-                        with ui.row().classes("items-center gap-3"):
-                            hero_value = ui.label().classes("hero-value")
-                            hero_value.set_visibility(False)
-                            hero_skeleton = ui.skeleton(width="12rem", height="2.6rem")
-                            hero_change = ui.label().classes("delta-pill")
-                            hero_change.set_visibility(False)
-                    ui.space()
-                    period_toggle = (
-                        ui.toggle(period_options(), value="30D")
-                        .props(SEGMENTED_PROPS)
-                        .classes("segmented")
-                    )
-                # One strip of figures: the totals now, then the period's range.
-                with ui.row().classes("w-full items-stretch gap-y-3 kpi-strip"):
-                    totals = ui.row().classes("items-stretch gap-0 no-wrap")
-                    with totals:
-                        for _ in range(3):
-                            ui.skeleton(width="8rem", height="2.6rem").classes("mx-4")
-                    ui.space()
-                    with ui.row().classes("items-stretch gap-0 no-wrap"):
-                        with ui.column().classes("kpi justify-center"):
-                            period_caption = ui.label(
-                                tr("For the period · {period}", period=period_toggle.value)
-                            ).classes("kpi-label text-primary")
-                            period_since = ui.label().classes("kpi-label")
-                        stats = ui.row().classes("items-stretch gap-0 no-wrap")
-                chart_skeleton = ui.skeleton(height="18rem").classes("w-full")
-                chart = ui.echart({}).classes("w-full h-72")
-                chart.set_visibility(False)
-                with ui.row().classes("items-center gap-2 no-wrap") as start_note:
-                    ui.icon("info", size="xs").classes("text-muted")
-                    start_text = ui.label().classes("text-caption text-muted")
-                    ui.button(
-                        tr("Leave it out of the chart"), on_click=lambda: exclude_newest()
-                    ).props("flat dense no-caps size=sm color=primary")
-                start_note.set_visibility(False)
-                with ui.row().classes("items-center gap-2 no-wrap") as excluded_note:
-                    ui.icon("hide_source", size="xs").classes("text-orange")
-                    excluded_text = ui.label().classes("text-caption text-muted")
-                    ui.button(tr("Count them all again"), on_click=lambda: include_all()).props(
-                        "flat dense no-caps size=sm color=primary"
-                    )
-                excluded_note.set_visibility(False)
-            movers = ui.row().classes("w-full gap-3")
-
-            # --- Positions ---------------------------------------------------------------
-            with ui.row().classes("w-full items-center"):
-                ui.label(tr("Positions")).classes("text-h6")
-                ui.space()
-                with ui.button(icon="lock").props("flat dense no-caps"):
-                    ui.tooltip(
-                        tr(
-                            "Pinned positions stay when items leave the inventory, "
-                            "for example into a storage unit."
-                        )
-                    )
-                    with ui.menu():
-                        ui.menu_item(tr("Pin all inventory items"), on_click=lambda: pin_all(True))
-                        ui.menu_item(tr("Unpin all"), on_click=lambda: pin_all(False))
-            table = (
-                ui.table(
-                    columns=columns(with_pnl=False),
-                    rows=[],
-                    row_key="id",
-                    # Hundreds of rows with icons and trend lines are slow to draw at once.
-                    pagination={"rowsPerPage": 50, "sortBy": None},
+                period_toggle = (
+                    ui.toggle(period_options(), value="30D")
+                    .props(SEGMENTED_PROPS)
+                    .classes("segmented")
                 )
-                .classes("w-full")
-                .props(":rows-per-page-options=[25,50,100,0] loading")
-            )
-            table.add_slot("body-cell-name", NAME_CELL_SLOT)
-            table.add_slot(
-                "body-cell-pin",
-                '<q-td :props="props">'
-                '<q-btn v-if="props.row.pinnable" flat dense round size="sm" '
-                ":icon=\"props.row.pinned ? 'lock' : 'lock_open'\" "
-                ":color=\"props.row.pinned ? 'amber' : 'grey'\" "
-                "@click.stop=\"$parent.$emit('pin', props.row)\" />"
-                "</q-td>",
-            )
-            table.add_slot(
-                "body-cell-chart",
-                '<q-td :props="props">'
-                '<q-btn flat dense round size="sm" '
-                ":icon=\"props.row.chart_excluded ? 'hide_source' : 'show_chart'\" "
-                ":color=\"props.row.chart_excluded ? 'orange' : 'grey'\" "
-                "@click.stop=\"$parent.$emit('chart', props.row)\">"
-                "<q-tooltip>{{ props.row.chart_tip }}</q-tooltip></q-btn>"
-                "</q-td>",
-            )
-            table.add_slot("body-cell-trend", SPARK_CELL_SLOT)
-            table.add_slot(
-                "body-cell-actions",
-                '<q-td :props="props">'
-                '<q-btn flat dense round icon="edit" '
-                "@click.stop=\"$parent.$emit('edit', props.row)\" />"
-                "</q-td>",
-            )
-            table.on("rowClick", lambda e: ui.navigate.to(f"/item/{e.args[1]['item_id']}"))
-
-            portfolio: Portfolio | None = None
-            shown_value = 0.0  # what the headline showed last, to count from
-
-            async def refresh() -> None:
-                nonlocal portfolio, shown_value
-                everything = await load_portfolio(runtime.sessions)
-                games.set_games((p.appid for p in everything.positions), await game_names())
-                portfolio = (
-                    everything
-                    if games.appid is None
-                    else await load_portfolio(runtime.sessions, games.appid)
-                )
-                hero_value.text = fmt_usd(portfolio.value)
-                hero_value.set_visibility(True)
-                hero_skeleton.set_visibility(False)
-                if round(portfolio.value, 2) != round(shown_value, 2):
-                    # The text already holds the new value; the browser counts up to it.
-                    # Wait a moment for the page to show the element and its new text.
-                    ui.run_javascript(
-                        f"setTimeout(() => window.invinvCount && invinvCount("
-                        f"'c{hero_value.id}', {shown_value:.2f}, {portfolio.value:.2f}), 60)"
-                    )
-                    shown_value = portfolio.value
-                totals.clear()
+            # One strip of figures: the totals now, then the period's range.
+            with ui.row().classes("w-full items-stretch gap-y-3 kpi-strip"):
+                totals = ui.row().classes("items-stretch gap-0 no-wrap")
                 with totals:
-                    kpi(tr("You receive after fees"), fmt_usd(portfolio.proceeds))
-                    if portfolio.cost:
-                        kpi(
-                            tr("Profit / loss"),
-                            f"{fmt_usd(portfolio.pnl)} ({portfolio.pnl / portfolio.cost:+.1%})",
-                            pct_color(portfolio.pnl),
-                            tr("after fees, positions with a purchase price"),
-                        )
-                    kpi(tr("Positions"), f"{len(portfolio.positions):,}")
-                    if portfolio.unpriced:
-                        kpi(tr("Waiting for prices"), f"{portfolio.unpriced:,}")
-                table.columns = columns(
-                    with_pnl=any(p.pnl is not None for p in portfolio.positions)
+                    for _ in range(3):
+                        ui.skeleton(width="8rem", height="2.6rem").classes("mx-4")
+                ui.space()
+                with ui.row().classes("items-stretch gap-0 no-wrap"):
+                    with ui.column().classes("kpi justify-center"):
+                        period_caption = ui.label(
+                            tr("For the period · {period}", period=period_toggle.value)
+                        ).classes("kpi-label text-primary")
+                        period_since = ui.label().classes("kpi-label")
+                    stats = ui.row().classes("items-stretch gap-0 no-wrap")
+            chart_skeleton = ui.skeleton(height="18rem").classes("w-full")
+            chart = ui.echart({}).classes("w-full h-72")
+            chart.set_visibility(False)
+            with ui.row().classes("items-center gap-2 no-wrap") as start_note:
+                ui.icon("info", size="xs").classes("text-muted")
+                start_text = ui.label().classes("text-caption text-muted")
+                ui.button(tr("Leave it out of the chart"), on_click=lambda: exclude_newest()).props(
+                    "flat dense no-caps size=sm color=primary"
                 )
-                table.rows = [_row(p) for p in portfolio.positions]
-                table.props(remove="loading")
-                table.update()
-                chart_skeleton.set_visibility(False)
-                chart.set_visibility(True)
-                redraw()
-                await _banner(banner)
+            start_note.set_visibility(False)
+            with ui.row().classes("items-center gap-2 no-wrap") as excluded_note:
+                ui.icon("hide_source", size="xs").classes("text-orange")
+                excluded_text = ui.label().classes("text-caption text-muted")
+                ui.button(tr("Count them all again"), on_click=lambda: include_all()).props(
+                    "flat dense no-caps size=sm color=primary"
+                )
+            excluded_note.set_visibility(False)
+        movers = ui.row().classes("w-full gap-3")
 
-            def redraw() -> None:
-                if portfolio is None:
-                    return
-                period = period_toggle.value
-                chart.options.clear()
-                chart.options.update(themed_chart(_value_chart(portfolio.value_history, period)))
-                chart.update()
-                period_caption.text = (
-                    tr("For all time")
-                    if period == "All"
-                    else tr("For the period · {period}", period=period)
-                )
-                history = portfolio.value_history
-                span = PERIODS[period]
-                # The period reaches back before the chart starts (always so for All).
-                cut = not history.empty and (
-                    span is None or history.index[0] > history.index[-1] - span
-                )
-                period_since.text = (
+        # --- Positions ---------------------------------------------------------------
+        with ui.row().classes("w-full items-center"):
+            ui.label(tr("Positions")).classes("text-h6")
+            ui.space()
+            with ui.button(icon="lock").props("flat dense no-caps"):
+                ui.tooltip(
                     tr(
-                        "since {date}, when the last of your items came to the market",
-                        date=f"{history.index[0]:%Y-%m-%d}",
+                        "Pinned positions stay when items leave the inventory, "
+                        "for example into a storage unit."
                     )
-                    if cut
-                    else ""
                 )
-                start_note.set_visibility(cut and portfolio.newest_item is not None)
-                excluded_note.set_visibility(portfolio.chart_excluded > 0)
-                excluded_text.text = tr_n(
-                    portfolio.chart_excluded,
-                    "{n} item is left out of the chart and the period stats.",
-                    "{n} items are left out of the chart and the period stats.",
+                with ui.menu():
+                    ui.menu_item(tr("Pin all inventory items"), on_click=lambda: pin_all(True))
+                    ui.menu_item(tr("Unpin all"), on_click=lambda: pin_all(False))
+        table = (
+            ui.table(
+                columns=columns(with_pnl=False),
+                rows=[],
+                row_key="id",
+                # Hundreds of rows with icons and trend lines are slow to draw at once.
+                pagination={"rowsPerPage": 50, "sortBy": None},
+            )
+            .classes("w-full")
+            .props(":rows-per-page-options=[25,50,100,0] loading")
+        )
+        table.add_slot("body-cell-name", NAME_CELL_SLOT)
+        table.add_slot(
+            "body-cell-pin",
+            '<q-td :props="props">'
+            '<q-btn v-if="props.row.pinnable" flat dense round size="sm" '
+            ":icon=\"props.row.pinned ? 'lock' : 'lock_open'\" "
+            ":color=\"props.row.pinned ? 'amber' : 'grey'\" "
+            "@click.stop=\"$parent.$emit('pin', props.row)\" />"
+            "</q-td>",
+        )
+        table.add_slot(
+            "body-cell-chart",
+            '<q-td :props="props">'
+            '<q-btn flat dense round size="sm" '
+            ":icon=\"props.row.chart_excluded ? 'hide_source' : 'show_chart'\" "
+            ":color=\"props.row.chart_excluded ? 'orange' : 'grey'\" "
+            "@click.stop=\"$parent.$emit('chart', props.row)\">"
+            "<q-tooltip>{{ props.row.chart_tip }}</q-tooltip></q-btn>"
+            "</q-td>",
+        )
+        table.add_slot("body-cell-trend", SPARK_CELL_SLOT)
+        table.add_slot(
+            "body-cell-actions",
+            '<q-td :props="props">'
+            '<q-btn flat dense round icon="edit" '
+            "@click.stop=\"$parent.$emit('edit', props.row)\" />"
+            "</q-td>",
+        )
+        table.on("rowClick", lambda e: ui.navigate.to(f"/item/{e.args[1]['item_id']}"))
+
+        portfolio: Portfolio | None = None
+        shown_value = 0.0  # what the headline showed last, to count from
+
+        async def refresh() -> None:
+            nonlocal portfolio, shown_value
+            everything = await load_portfolio(runtime.sessions)
+            games.set_games((p.appid for p in everything.positions), await game_names())
+            portfolio = (
+                everything
+                if games.appid is None
+                else await load_portfolio(runtime.sessions, games.appid)
+            )
+            hero_value.text = fmt_usd(portfolio.value)
+            hero_value.set_visibility(True)
+            hero_skeleton.set_visibility(False)
+            if round(portfolio.value, 2) != round(shown_value, 2):
+                # The text already holds the new value; the browser counts up to it.
+                # Wait a moment for the page to show the element and its new text.
+                ui.run_javascript(
+                    f"setTimeout(() => window.invinvCount && invinvCount("
+                    f"'c{hero_value.id}', {shown_value:.2f}, {portfolio.value:.2f}), 60)"
                 )
-                if portfolio.newest_item and not history.empty:
-                    start_text.text = tr(
-                        "The chart starts on {date}: that day your newest item, {item}, first "
-                        "sold. Before it, the portfolio as it is today did not exist.",
-                        date=f"{history.index[0]:%Y-%m-%d}",
-                        item=portfolio.newest_item,
+                shown_value = portfolio.value
+            totals.clear()
+            with totals:
+                kpi(tr("You receive after fees"), fmt_usd(portfolio.proceeds))
+                if portfolio.cost:
+                    kpi(
+                        tr("Profit / loss"),
+                        f"{fmt_usd(portfolio.pnl)} ({portfolio.pnl / portfolio.cost:+.1%})",
+                        pct_color(portfolio.pnl),
+                        tr("after fees, positions with a purchase price"),
                     )
-                change = period_stats(portfolio.value_history, PERIODS[period])
-                _period_stats(stats, change)
-                _delta_pill(hero_change, change)
-                _movers(movers, portfolio, period)
+                kpi(tr("Positions"), f"{len(portfolio.positions):,}")
+                if portfolio.unpriced:
+                    kpi(tr("Waiting for prices"), f"{portfolio.unpriced:,}")
+            table.columns = columns(with_pnl=any(p.pnl is not None for p in portfolio.positions))
+            table.rows = [_row(p) for p in portfolio.positions]
+            table.props(remove="loading")
+            table.update()
+            chart_skeleton.set_visibility(False)
+            chart.set_visibility(True)
+            redraw()
+            await _banner(banner)
 
-            async def add_manual(result: SearchResult) -> bool:
-                if not await add_position(result.market_hash_name, result, appid=result.appid):
-                    return False
-                await refresh()
-                return True
-
-            async def edit(event: Any) -> None:
-                row = event.args
-                async with runtime.sessions() as session:
-                    holdings = dict((h.id, h) for h, _ in await repo.active_holdings(session))
-                holding = holdings.get(row["id"])
-                if holding is None:
-                    return
-                manual = holding.source == repo.SOURCE_MANUAL
-                form = await position_dialog(
-                    row["name"],
-                    manual=manual,
-                    initial=PositionForm(
-                        holding.quantity, holding.location, holding.buy_price_usd, holding.bought_at
-                    ),
-                    deletable=manual,
+        def redraw() -> None:
+            if portfolio is None:
+                return
+            period = period_toggle.value
+            chart.options.clear()
+            chart.options.update(themed_chart(_value_chart(portfolio.value_history, period)))
+            chart.update()
+            period_caption.text = (
+                tr("For all time")
+                if period == "All"
+                else tr("For the period · {period}", period=period)
+            )
+            history = portfolio.value_history
+            span = PERIODS[period]
+            # The period reaches back before the chart starts (always so for All).
+            cut = not history.empty and (
+                span is None or history.index[0] > history.index[-1] - span
+            )
+            period_since.text = (
+                tr(
+                    "since {date}, when the last of your items came to the market",
+                    date=f"{history.index[0]:%Y-%m-%d}",
                 )
-                if form == DELETE:
-                    async with runtime.sessions() as session:
-                        await repo.delete_manual_holding(session, holding.id)
-                        await session.commit()
-                    await refresh()
-                    return
-                if not isinstance(form, PositionForm):
-                    return
+                if cut
+                else ""
+            )
+            start_note.set_visibility(cut and portfolio.newest_item is not None)
+            excluded_note.set_visibility(portfolio.chart_excluded > 0)
+            excluded_text.text = tr_n(
+                portfolio.chart_excluded,
+                "{n} item is left out of the chart and the period stats.",
+                "{n} items are left out of the chart and the period stats.",
+            )
+            if portfolio.newest_item and not history.empty:
+                start_text.text = tr(
+                    "The chart starts on {date}: that day your newest item, {item}, first "
+                    "sold. Before it, the portfolio as it is today did not exist.",
+                    date=f"{history.index[0]:%Y-%m-%d}",
+                    item=portfolio.newest_item,
+                )
+            change = period_stats(portfolio.value_history, PERIODS[period])
+            _period_stats(stats, change)
+            _delta_pill(hero_change, change)
+            _movers(movers, portfolio, period)
+
+        async def add_manual(result: SearchResult) -> bool:
+            if not await add_position(result.market_hash_name, result, appid=result.appid):
+                return False
+            await refresh()
+            return True
+
+        async def edit(event: Any) -> None:
+            row = event.args
+            async with runtime.sessions() as session:
+                holdings = dict((h.id, h) for h, _ in await repo.active_holdings(session))
+            holding = holdings.get(row["id"])
+            if holding is None:
+                return
+            manual = holding.source == repo.SOURCE_MANUAL
+            form = await position_dialog(
+                row["name"],
+                manual=manual,
+                initial=PositionForm(
+                    holding.quantity, holding.location, holding.buy_price_usd, holding.bought_at
+                ),
+                deletable=manual,
+            )
+            if form == DELETE:
                 async with runtime.sessions() as session:
-                    await repo.update_holding(
-                        session,
-                        holding.id,
-                        quantity=form.quantity,
-                        location=form.location,
-                        buy_price_usd=form.buy_price_usd,
-                        bought_at=form.bought_at,
+                    await repo.delete_manual_holding(session, holding.id)
+                    await session.commit()
+                await refresh()
+                return
+            if not isinstance(form, PositionForm):
+                return
+            async with runtime.sessions() as session:
+                await repo.update_holding(
+                    session,
+                    holding.id,
+                    quantity=form.quantity,
+                    location=form.location,
+                    buy_price_usd=form.buy_price_usd,
+                    bought_at=form.bought_at,
+                )
+                await session.commit()
+            await refresh()
+
+        async def open_add_dialog() -> None:
+            with ui.dialog() as dialog, ui.card().classes("w-[48rem] max-w-full"):
+                ui.label(tr("Add items that are not in your inventory")).classes("text-h6")
+                ui.label(
+                    tr(
+                        "For example, storage unit contents: Steam does not show them in "
+                        "the inventory."
                     )
-                    await session.commit()
-                await refresh()
+                ).classes("text-muted")
 
-            async def open_add_dialog() -> None:
-                with ui.dialog() as dialog, ui.card().classes("w-[48rem] max-w-full"):
-                    ui.label(tr("Add items that are not in your inventory")).classes("text-h6")
-                    ui.label(
-                        tr(
-                            "For example, storage unit contents: Steam does not show them in "
-                            "the inventory."
-                        )
-                    ).classes("text-muted")
+                async def pick(result: SearchResult) -> bool:
+                    dialog.close()
+                    return await add_manual(result)
 
-                    async def pick(result: SearchResult) -> bool:
-                        dialog.close()
-                        return await add_manual(result)
+                search_box(
+                    action_label=tr("Add to portfolio"),
+                    on_pick=pick,
+                    games=await searchable_games(),
+                )
+            dialog.open()
 
-                    search_box(
-                        action_label=tr("Add to portfolio"),
-                        on_pick=pick,
-                        games=await searchable_games(),
-                    )
-                dialog.open()
+        async def toggle_pin(event: Any) -> None:
+            row = event.args
+            async with runtime.sessions() as session:
+                await repo.set_pinned(session, row["id"], not row["pinned"])
+                await session.commit()
+            await refresh()
 
-            async def toggle_pin(event: Any) -> None:
-                row = event.args
-                async with runtime.sessions() as session:
-                    await repo.set_pinned(session, row["id"], not row["pinned"])
-                    await session.commit()
-                await refresh()
+        async def pin_all(pinned: bool) -> None:
+            async with runtime.sessions() as session:
+                await repo.pin_all(session, pinned)
+                await session.commit()
+            ui.notify(tr("All inventory items pinned") if pinned else tr("All items unpinned"))
+            await refresh()
 
-            async def pin_all(pinned: bool) -> None:
-                async with runtime.sessions() as session:
-                    await repo.pin_all(session, pinned)
-                    await session.commit()
-                ui.notify(tr("All inventory items pinned") if pinned else tr("All items unpinned"))
-                await refresh()
+        async def toggle_chart(event: Any) -> None:
+            row = event.args
+            async with runtime.sessions() as session:
+                await repo.set_chart_excluded(session, row["id"], not row["chart_excluded"])
+                await session.commit()
+            await refresh()
 
-            async def toggle_chart(event: Any) -> None:
-                row = event.args
-                async with runtime.sessions() as session:
-                    await repo.set_chart_excluded(session, row["id"], not row["chart_excluded"])
-                    await session.commit()
-                await refresh()
+        async def exclude_newest() -> None:
+            if portfolio is None or portfolio.newest_holding_id is None:
+                return
+            async with runtime.sessions() as session:
+                await repo.set_chart_excluded(session, portfolio.newest_holding_id, True)
+                await session.commit()
+            ui.notify(tr("{item} is left out of the chart", item=portfolio.newest_item))
+            await refresh()
 
-            async def exclude_newest() -> None:
-                if portfolio is None or portfolio.newest_holding_id is None:
-                    return
-                async with runtime.sessions() as session:
-                    await repo.set_chart_excluded(session, portfolio.newest_holding_id, True)
-                    await session.commit()
-                ui.notify(tr("{item} is left out of the chart", item=portfolio.newest_item))
-                await refresh()
+        async def include_all() -> None:
+            async with runtime.sessions() as session:
+                await repo.include_all_in_chart(session)
+                await session.commit()
+            await refresh()
 
-            async def include_all() -> None:
-                async with runtime.sessions() as session:
-                    await repo.include_all_in_chart(session)
-                    await session.commit()
-                await refresh()
-
-            table.on("edit", edit)
-            table.on("pin", toggle_pin)
-            table.on("chart", toggle_chart)
-            period_toggle.on_value_change(redraw)
-            # Show the page at once with placeholders; the data follows a moment later.
-            ui.timer(0.05, refresh, once=True)
-            ui.timer(60, refresh)
+        table.on("edit", edit)
+        table.on("pin", toggle_pin)
+        table.on("chart", toggle_chart)
+        period_toggle.on_value_change(redraw)
+        # Show the page at once with placeholders; the data follows a moment later.
+        ui.timer(0.05, refresh, once=True)
+        ui.timer(60, refresh)
 
 
 def _delta_pill(pill: ui.label, stats: PeriodStats | None) -> None:

@@ -228,8 +228,9 @@ def themed_chart(options: dict[str, Any]) -> dict[str, Any]:
 
 
 @contextmanager
-def page_frame(active: str) -> Iterator[None]:
-    """Wrap a page's content in the shared navigation, header and theme."""
+def page_frame(active: str, *, animate: bool = True) -> Iterator[None]:
+    """Wrap a page's content in the shared navigation, header and theme. In the app shell
+    (ui.shell) the pages inside animate themselves, so the frame does not (`animate`)."""
     theme = current_theme()
     ui.add_css(_CSS)
     ui.add_head_html('<script src="/static/js/motion.js" defer></script>')
@@ -256,7 +257,15 @@ def page_frame(active: str) -> Iterator[None]:
         _theme_menu(theme)
         _account_chip()
 
-    with ui.column().classes("w-full max-w-[1600px] mx-auto p-4 gap-4 page-enter"):
+    enter = " page-enter" if animate else ""
+    with ui.column().classes(f"w-full max-w-[1600px] mx-auto p-4 gap-4{enter}"):
+        yield
+
+
+@contextmanager
+def page_content() -> Iterator[None]:
+    """A page's content in the app shell: it rises in each time the page is opened."""
+    with ui.column().classes("w-full gap-4 page-enter"):
         yield
 
 
