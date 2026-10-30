@@ -68,16 +68,9 @@ class SteamClient:
     consecutive 429 (from `cooldown` up to `max_cooldown`) and resets after a success.
     resume() ends a cool-down early, say after the user switched to another IP address.
 
-    With `min_interval` below `interval` the pace is adaptive: after every SPEEDUP_AFTER
-    successful requests in a row the pause shrinks by a second, down to `min_interval`.
-    A 429 marks the pace that was too fast: the pause goes back a few seconds above it and
-    never shrinks to it again.
+    With `min_interval` below `interval` the pace is adaptive: requests go `min_interval`
+    apart until Steam answers 429, and `interval` apart from then on.
     """
-
-    SPEEDUP_AFTER = 10
-    SPEEDUP_STEP = 1.0
-    # How far above the pace that drew a 429 the adaptive pace settles.
-    BACKOFF_MARGIN = 3.0
 
     def __init__(
         self,
@@ -94,8 +87,7 @@ class SteamClient:
         self._session = session
         self._interval = interval
         self._min_interval = min(min_interval, interval) if min_interval else interval
-        self._pace = interval
-        self._successes = 0
+        self._pace = self._min_interval
         self._cooldown = cooldown
         self._max_cooldown = max_cooldown
         self._base_url = base_url
@@ -241,7 +233,6 @@ class SteamClient:
             raise SteamRateLimitedError(self._next_allowed)
 
         self._consecutive_429 = 0
-        self._speed_up()
         self._next_allowed = now + self._pace
         if status >= 500:
             raise _TransientError(f"{path}: HTTP {status}")
@@ -260,21 +251,9 @@ class SteamClient:
             sleeper.cancel()
             waker.cancel()
 
-    def _speed_up(self) -> None:
-        if not self.adaptive:
-            return
-        self._successes += 1
-        if self._successes < self.SPEEDUP_AFTER or self._pace <= self._min_interval:
-            return
-        self._successes = 0
-        self._pace = max(self._pace - self.SPEEDUP_STEP, self._min_interval)
-        log.info("pace: %.0f s between requests", self._pace)
-
     def _slow_down(self) -> None:
-        if not self.adaptive:
-            return
-        self._successes = 0
-        too_fast = self._pace
-        self._min_interval = min(too_fast + self.BACKOFF_MARGIN, self._interval)
-        self._pace = self._min_interval
-        log.info("pace: %.0f s between requests (%.0f s drew a 429)", self._pace, too_fast)
+        if self._pace < self._interval:
+            log.info(
+                "pace: %.0f s between requests (%.0f s drew a 429)", self._interval, self._pace
+            )
+            self._pace = self._interval

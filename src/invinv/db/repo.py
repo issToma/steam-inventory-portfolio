@@ -788,12 +788,15 @@ class PriceProgress:
 
 async def price_progress(session: AsyncSession) -> PriceProgress:
     held = select(Holding.item_id).where(_active_holding()).distinct().subquery()
-    has_prices = select(PricePoint.item_id).where(PricePoint.item_id == held.c.item_id).exists()
-    total, priced = (
-        await session.execute(
-            select(func.count(), func.count().filter(has_prices)).select_from(held)
-        )
-    ).one()
+    # Priced: its listing was checked, or it has sales (an item never sold has no history).
+    has_history = select(PricePoint.item_id).where(PricePoint.item_id == held.c.item_id).exists()
+    has_listing = (
+        select(Item.id)
+        .where(Item.id == held.c.item_id, Item.listing_checked_at.is_not(None))
+        .exists()
+    )
+    query = select(func.count(), func.count().filter(or_(has_history, has_listing)))
+    total, priced = (await session.execute(query.select_from(held))).one()
     return PriceProgress(priced=priced, total=total)
 
 

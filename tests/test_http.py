@@ -192,28 +192,25 @@ def adaptive_client(session: FakeSession, clock: FakeClock) -> SteamClient:
     )
 
 
-async def test_adaptive_pace_speeds_up_and_backs_off_after_429() -> None:
+async def test_adaptive_pace_is_fast_until_a_429_then_slow() -> None:
     clock = FakeClock()
-    ok = SteamClient.SPEEDUP_AFTER * 5
     responses: list[FakeResponse | Exception] = [
-        *[FakeResponse(200, b"{}") for _ in range(ok)],
+        *[FakeResponse(200, b"{}") for _ in range(3)],
         FakeResponse(429, b""),
-        *[FakeResponse(200, b"{}") for _ in range(ok)],
+        *[FakeResponse(200, b"{}") for _ in range(3)],
     ]
-    session = FakeSession(responses)
-    client = adaptive_client(session, clock)
+    client = adaptive_client(FakeSession(responses), clock)
 
-    for _ in range(ok):
+    for _ in range(3):
         await client.get_json("/a")
-    assert client.pace == 15
+    assert client.pace == 8
 
     with pytest.raises(SteamRateLimitedError):
         await client.get_json("/a")
-    assert client.pace == 18  # 15 s drew the 429: settle 3 s above it, for good
-
-    for _ in range(ok):
+    for _ in range(3):
         await client.get_json("/a")
-    assert client.pace == 18
+
+    assert client.pace == 20
 
 
 async def test_fixed_pace_without_min_interval() -> None:

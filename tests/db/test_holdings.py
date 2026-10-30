@@ -4,7 +4,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from invinv.core.parsers import HistoryPoint, InventoryItem, PriceHistory
+from invinv.core.parsers import HistoryPoint, InventoryItem, PriceHistory, PriceOverview
 from invinv.db import repo
 from invinv.db.tables import FetchJob, Holding
 
@@ -259,3 +259,17 @@ async def test_price_progress(session: AsyncSession) -> None:
     await repo.save_history(session, item.id, history)
 
     assert await repo.price_progress(session) == repo.PriceProgress(priced=1, total=2)
+
+
+async def test_an_item_never_sold_counts_as_priced_once_its_listing_is_known(
+    session: AsyncSession,
+) -> None:
+    await repo.sync_inventory(session, [inv("Kilowatt Case")])
+    item = await repo.get_item_by_name(session, "Kilowatt Case", 730)
+    assert item is not None
+    assert await repo.price_progress(session) == repo.PriceProgress(priced=0, total=1)
+
+    overview = PriceOverview(lowest_price=Decimal("0.03"), median_price=None, volume=None)
+    await repo.save_listing(session, item.id, overview, datetime.now(UTC))
+
+    assert await repo.price_progress(session) == repo.PriceProgress(priced=1, total=1)
