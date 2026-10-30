@@ -6,7 +6,7 @@ import pytest
 
 from invinv.analysis import to_frame
 from invinv.db.repo import StoredPoint
-from invinv.portfolio import PositionInput, period_stats, value_positions
+from invinv.portfolio import PositionInput, like_for_like, period_stats, value_positions
 from invinv.pricing import Listing
 
 DAY = datetime(2026, 10, 1, tzinfo=UTC)
@@ -162,3 +162,32 @@ def test_without_listings_the_price_is_the_median_of_recent_sales() -> None:
     (position_,) = value_positions([no_listing]).positions
 
     assert (position_.price, position_.price_source) == (0.03, "sales")
+
+
+def test_period_stats_count_only_items_already_on_the_market() -> None:
+    older = position(1, [10, 10, 12, 12], quantity=1)
+    newer = PositionInput(  # first sold on day 2
+        holding_id=2,
+        item_id=2,
+        name="item 2",
+        source="manual",
+        location=None,
+        appid=730,
+        quantity=1,
+        buy_price_usd=None,
+        history=to_frame(
+            [
+                StoredPoint(DAY + timedelta(days=2 + i), "day", Decimal("100"), 20, 1)
+                for i in range(2)
+            ],
+            {},
+        ),
+    )
+    frame = value_positions([older, newer]).value_frame
+
+    same, counted = like_for_like(frame, None)
+
+    # The newer item would show as +100 growth; only the older item counts: 10 -> 12.
+    assert counted == 1
+    assert list(same) == [10, 10, 12, 12]
+    assert like_for_like(frame, timedelta(days=1))[1] == 2

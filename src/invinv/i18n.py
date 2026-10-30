@@ -63,6 +63,11 @@ RU_PLURAL: dict[tuple[str, str], tuple[str, str, str]] = {
     ("{n} minute", "{n} minutes"): ("{n} минуту", "{n} минуты", "{n} минут"),
     ("{n} item", "{n} items"): ("{n} предмет", "{n} предмета", "{n} предметов"),
     ("{n} sale", "{n} sales"): ("{n} продажа", "{n} продажи", "{n} продаж"),
+    ("by {n} item on the market at its start", "by {n} items on the market at its start"): (
+        "по {n} предмету, который был на рынке в его начале",
+        "по {n} предметам, которые были на рынке в его начале",
+        "по {n} предметам, которые были на рынке в его начале",
+    ),
     (
         "{n} of your items first sold within this period. An item counts from its first sale, so the chart steps up on that day.",
         "{n} of your items first sold within this period. Each counts from its first sale, so the chart steps up on those days.",
@@ -493,4 +498,5 @@ RU: dict[str, str] = {
         "котором не меньше {n} ваших предметов, от 100% на начало периода."
     ),
     "Not enough items in any segment yet.": "Пока ни в одном сегменте не хватает предметов.",
+    "{n} more": "Ещё {n}",
 }

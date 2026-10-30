@@ -157,6 +157,7 @@ class Portfolio:
     pnl: float
     unpriced: int
     value_history: pd.Series  # daily, USD
+    value_frame: pd.DataFrame  # the same per position (value_frame())
     # The day each position's item first sold: from then on it counts in value_history.
     item_starts: tuple[pd.Timestamp, ...] = ()
 
@@ -226,6 +227,7 @@ def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None
         for p, price, value, proceeds, cost, pnl, metrics, computed, source, changes in rows
     ]
     positions.sort(key=lambda pos: pos.value or 0, reverse=True)
+    frame = value_frame(inputs, dailies)
     with_pnl = [pos for pos in positions if pos.pnl is not None]
     return Portfolio(
         positions=positions,
@@ -234,7 +236,8 @@ def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None
         cost=sum(pos.cost for pos in with_pnl if pos.cost is not None),
         pnl=sum(pos.pnl for pos in with_pnl if pos.pnl is not None),
         unpriced=sum(1 for pos in positions if pos.price is None),
-        value_history=value_history(inputs, dailies),
+        value_history=frame.sum(axis=1),
+        value_frame=frame,
         item_starts=tuple(daily.index[0] for daily in dailies.values() if not daily.empty),
     )
 
@@ -260,6 +263,13 @@ def value_history(
     item did not exist, so the value steps up on such days. `dailies` holds daily price
     series already built.
     """
+    return value_frame(inputs, dailies).sum(axis=1)
+
+
+def value_frame(
+    inputs: Sequence[PositionInput], dailies: Mapping[int, pd.Series] | None = None
+) -> pd.DataFrame:
+    """Every position's value on every day (days x positions); empty before its first sale."""
     columns: list[tuple[np.ndarray, np.ndarray]] = []
     for p in inputs:
         daily = dailies.get(p.holding_id) if dailies else None
@@ -271,15 +281,28 @@ def value_history(
         days = pd.DatetimeIndex(daily.index).tz_convert(None).normalize().to_numpy()
         columns.append((days, daily.to_numpy(dtype=float) * p.quantity))
     if not columns:
-        return pd.Series(dtype=float)
+        return pd.DataFrame()
     # One matrix (day x position) instead of aligning hundreds of series one by one.
     all_days = np.unique(np.concatenate([days for days, _ in columns]))
     matrix = np.full((len(all_days), len(columns)), np.nan)
     for column, (days, values) in enumerate(columns):
         matrix[np.searchsorted(all_days, days), column] = values
     frame = pd.DataFrame(matrix, index=pd.DatetimeIndex(all_days).tz_localize(UTC))
-    # An item without a price yet (before its first sale) adds nothing.
-    return frame.ffill().sum(axis=1)
+    # Between sales a position keeps its last value; before its first sale it has none.
+    return frame.ffill()
+
+
+def like_for_like(frame: pd.DataFrame, period: timedelta | None) -> tuple[pd.Series, int]:
+    """The value over the period of the positions that were on the market at its start,
+    and how many they are: items that came later would show up as growth."""
+    if frame.empty:
+        return pd.Series(dtype=float), 0
+    days = pd.DatetimeIndex(frame.index)
+    start = 0
+    if period is not None:
+        start = max(int(days.searchsorted(days[-1] - period, side="right")) - 1, 0)
+    present = frame.iloc[start].notna().to_numpy()
+    return frame.iloc[start:, present].sum(axis=1), int(present.sum())
 
 
 # Valued portfolios by game filter (None = every game), with the fingerprint they match.

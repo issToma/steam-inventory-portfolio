@@ -11,6 +11,7 @@ from invinv.portfolio import (
     PeriodStats,
     Portfolio,
     Position,
+    like_for_like,
     load_portfolio,
     period_stats,
 )
@@ -269,6 +270,14 @@ def register() -> None:
                     if period == "All"
                     else tr("For the period · {period}", period=period)
                 )
+                same_items, counted = like_for_like(portfolio.value_frame, PERIODS[period])
+                if counted < len(portfolio.value_frame.columns):
+                    # Items that came to the market later would count as growth.
+                    period_caption.text += " · " + tr_n(
+                        counted,
+                        "by {n} item on the market at its start",
+                        "by {n} items on the market at its start",
+                    )
                 history = portfolio.value_history
                 span = PERIODS[period]
                 # Items that came to the market within the shown period make it step up.
@@ -284,7 +293,7 @@ def register() -> None:
                     "{n} of your items first sold within this period. Each counts from its "
                     "first sale, so the chart steps up on those days.",
                 )
-                _period_stats(stats, period_stats(portfolio.value_history, PERIODS[period]))
+                _period_stats(stats, period_stats(same_items, None))
                 _movers(movers, portfolio, period)
 
             async def add_manual(result: SearchResult) -> bool:
@@ -431,16 +440,34 @@ def _movers(container: ui.row, portfolio: Portfolio, period: str) -> None:
                 ui.label(title).classes("text-caption text-primary")
                 if not entries:
                     ui.label("—").classes("text-muted")
-                for p, change, dollars in entries[:3]:
-                    with ui.row().classes("w-full no-wrap items-center gap-2"):
-                        color = rarity_color(p.rarity, p.quality, p.name_color, p.appid)
-                        ui.link(p.name, f"/item/{p.item_id}").classes(
-                            "plain-link grow truncate"
-                        ).style(f"color: {color}" if color else "")
-                        sign = "+" if dollars > 0 else "-"
-                        ui.label(f"{sign}{fmt_usd(abs(dollars))} ({fmt_pct(change)})").classes(
-                            f"{pct_color(change)} whitespace-nowrap"
-                        )
+                for p, change, dollars in entries[:MOVERS_SHOWN]:
+                    _mover(p, change, dollars)
+                more = entries[MOVERS_SHOWN:MOVERS_MAX]
+                if more:
+                    with (
+                        ui.expansion(tr("{n} more", n=len(more)))
+                        .classes("w-full")
+                        .props("dense header-class=text-muted")
+                    ):
+                        for p, change, dollars in more:
+                            _mover(p, change, dollars)
+
+
+# Top movers shown at once, and in all with the rest unfolded.
+MOVERS_SHOWN = 3
+MOVERS_MAX = 10
+
+
+def _mover(p: Position, change: float, dollars: float) -> None:
+    with ui.row().classes("w-full no-wrap items-center gap-2"):
+        color = rarity_color(p.rarity, p.quality, p.name_color, p.appid)
+        ui.link(p.name, f"/item/{p.item_id}").classes("plain-link grow truncate").style(
+            f"color: {color}" if color else ""
+        )
+        sign = "+" if dollars > 0 else "-"
+        ui.label(f"{sign}{fmt_usd(abs(dollars))} ({fmt_pct(change)})").classes(
+            f"{pct_color(change)} whitespace-nowrap"
+        )
 
 
 async def _banner(container: ui.column) -> None:
