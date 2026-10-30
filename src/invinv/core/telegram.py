@@ -14,7 +14,11 @@ TIMEOUT = aiohttp.ClientTimeout(total=20)
 
 
 class TelegramError(Exception):
-    """Telegram refused the request or could not be reached."""
+    """Telegram refused the request or could not be reached (`unreachable`)."""
+
+    def __init__(self, message: str, *, unreachable: bool = False) -> None:
+        super().__init__(message)
+        self.unreachable = unreachable
 
 
 @dataclass(frozen=True)
@@ -45,7 +49,22 @@ class TelegramBot:
                 return TelegramChat(id=chat["id"], title=name or chat.get("username") or "")
         return None
 
-    async def send(self, token: str, chat_id: str, html: str) -> None:
+    async def send(self, token: str, chat_id: str, html: str, photo_url: str | None = None) -> None:
+        """Send a message; with `photo_url`, a picture with the message as its caption.
+
+        If Telegram refuses the picture (say, it cannot fetch it), the text goes alone.
+        """
+        if photo_url is not None:
+            try:
+                await self._call(
+                    token,
+                    "sendPhoto",
+                    {"chat_id": chat_id, "photo": photo_url, "caption": html, "parse_mode": "HTML"},
+                )
+                return
+            except TelegramError as exc:
+                if exc.unreachable:
+                    raise
         await self._call(
             token,
             "sendMessage",
@@ -63,7 +82,9 @@ class TelegramBot:
             async with self._http.post(url, json=payload, timeout=TIMEOUT) as response:
                 body = await response.json(content_type=None)
         except (aiohttp.ClientError, TimeoutError, ValueError) as exc:
-            raise TelegramError(f"Telegram is unreachable ({type(exc).__name__})") from None
+            raise TelegramError(
+                f"Telegram is unreachable ({type(exc).__name__})", unreachable=True
+            ) from None
         if not isinstance(body, dict) or not body.get("ok"):
             description = body.get("description") if isinstance(body, dict) else None
             raise TelegramError(str(description or f"Telegram refused {method}"))

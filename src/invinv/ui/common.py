@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from invinv.core.games import CS2_APPID
+from invinv.core.steam import icon_url as icon_url
 from invinv.i18n import tr, tr_n
 
 
@@ -65,8 +66,6 @@ RARITY_COLORS: dict[str, str] = {
 }
 STAR_COLOR = "#8650ac"
 
-ICON_URL = "https://community.akamai.steamstatic.com/economy/image/{icon}/{size}"
-
 
 def rarity_color(
     rarity: str | None,
@@ -80,10 +79,6 @@ def rarity_color(
     if quality and "★" in quality:
         return STAR_COLOR
     return RARITY_COLORS.get(rarity or "") or name_color
-
-
-def icon_url(icon: str | None, size: str = "96fx72f") -> str | None:
-    return ICON_URL.format(icon=icon, size=size) if icon else None
 
 
 def sparkline_points(values: list[float], width: int = 90, height: int = 24) -> str:

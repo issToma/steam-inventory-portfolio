@@ -93,11 +93,13 @@ class FakeBot:
     def __init__(self, fail: bool = False) -> None:
         self.fail = fail
         self.sent: list[tuple[str, str]] = []
+        self.photos: list[str | None] = []
 
-    async def send(self, token: str, chat_id: str, html: str) -> None:
+    async def send(self, token: str, chat_id: str, html: str, photo_url: str | None = None) -> None:
         if self.fail:
             raise TelegramError("Bad Gateway")
         self.sent.append((chat_id, html))
+        self.photos.append(photo_url)
 
 
 async def fire_with_telegram(sessions: SessionMaker) -> None:

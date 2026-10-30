@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from invinv.analysis import MissingRateError, change_since, price_views, to_frame
 from invinv.core.games import game_name
+from invinv.core.steam import icon_url
 from invinv.core.telegram import TelegramBot, TelegramError
 from invinv.db import repo
 from invinv.db.session import SessionMaker
@@ -39,6 +40,8 @@ COOLDOWN = timedelta(hours=6)
 # A Telegram message that still cannot be sent after this long is given up.
 TELEGRAM_GIVE_UP = timedelta(days=1)
 TELEGRAM_RETRY = timedelta(minutes=5)
+# Size of the item picture sent with an alert (Steam CDN size suffix).
+TELEGRAM_PICTURE = "256fx192f"
 
 
 @dataclass(frozen=True)
@@ -216,7 +219,10 @@ class Notifier:
             try:
                 game = games.get(item.appid) or game_name(item.appid)
                 await self._bot.send(
-                    settings.token, settings.chat_id, telegram_message(language, event, item, game)
+                    settings.token,
+                    settings.chat_id,
+                    telegram_message(language, event, item, game),
+                    photo_url=icon_url(item.icon_url, TELEGRAM_PICTURE),
                 )
             except TelegramError as exc:
                 log.warning("Telegram: %s", exc)

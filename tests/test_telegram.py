@@ -20,6 +20,10 @@ async def bot() -> AsyncIterator[tuple[TelegramBot, list[tuple[str, Any]]]]:
         calls.append((method, await request.json()))
         if request.match_info["token"] != f"bot{TOKEN}":
             return web.json_response({"ok": False, "description": "Unauthorized"}, status=401)
+        if method == "sendPhoto" and "broken" in (await request.json())["photo"]:
+            return web.json_response(
+                {"ok": False, "description": "Bad Request: wrong file identifier"}, status=400
+            )
         results: dict[str, Any] = {
             "getMe": {"username": "invinv_bot"},
             "getUpdates": [
@@ -27,6 +31,7 @@ async def bot() -> AsyncIterator[tuple[TelegramBot, list[tuple[str, Any]]]]:
                 {"update_id": 2, "message": {"chat": {"id": 7, "first_name": "Ann"}}},
             ],
             "sendMessage": {"message_id": 1},
+            "sendPhoto": {"message_id": 2},
         }
         return web.json_response({"ok": True, "result": results[method]})
 
@@ -74,3 +79,15 @@ async def test_unreachable_telegram_does_not_leak_the_token() -> None:
 
     assert "very-secret" not in str(error.value)
     assert error.value.__cause__ is None
+
+
+async def test_photo_with_caption_and_text_when_the_photo_fails(
+    bot: tuple[TelegramBot, list[tuple[str, Any]]],
+) -> None:
+    client, calls = bot
+
+    await client.send(TOKEN, "7", "<b>hi</b>", photo_url="https://cdn/ok.png")
+    await client.send(TOKEN, "7", "<b>hi</b>", photo_url="https://cdn/broken.png")
+
+    assert [method for method, _ in calls] == ["sendPhoto", "sendPhoto", "sendMessage"]
+    assert calls[0][1]["caption"] == "<b>hi</b>"

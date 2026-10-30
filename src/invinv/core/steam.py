@@ -143,6 +143,14 @@ EXTERIOR_NAMES: dict[Exterior, str] = {
 GROUP_PAGE_TIMEOUT = 120.0
 
 # 2000 is the largest page Steam serves; bigger inventories come in several pages.
+# Item pictures on Steam's CDN; `icon` is the icon_url of an item's description.
+ICON_URL = "https://community.akamai.steamstatic.com/economy/image/{icon}/{size}"
+
+
+def icon_url(icon: str | None, size: str = "96fx72f") -> str | None:
+    return ICON_URL.format(icon=icon, size=size) if icon else None
+
+
 INVENTORY_PAGE_SIZE = 2000
 INVENTORY_MAX_PAGES = 20
 
