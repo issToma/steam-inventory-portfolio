@@ -493,7 +493,8 @@ def _delta_pill(pill: ui.label, stats: PeriodStats | None) -> None:
     up = stats.change >= 0
     text = f"{'▲' if up else '▼'} {fmt_usd(abs(stats.change))}"
     if stats.change_pct is not None:
-        text += f" · {stats.change_pct:+.1%}"
+        # The arrow already gives the direction.
+        text += f" ({abs(stats.change_pct):.1%})"
     pill.text = text
     pill.classes(remove="delta-up delta-down", add="delta-up" if up else "delta-down")
     pill.set_visibility(True)
