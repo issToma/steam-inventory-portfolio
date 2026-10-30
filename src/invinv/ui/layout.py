@@ -24,6 +24,20 @@ DEFAULT_THEME: Theme = "dark"
 
 # Palettes follow GitHub's Dark, Dark dimmed and Light themes.
 _CSS = """
+@font-face { font-family: "Inter"; font-weight: 100 900; font-display: swap;
+             src: url("/static/fonts/InterVariable.woff2") format("woff2"); }
+body, .q-btn, .q-field, .q-table, .q-item, .q-tooltip, .q-notification {
+  font-family: "Inter", system-ui, sans-serif; }
+/* Figures of equal width where numbers line up; not for names, where Inter's tabular forms
+   would also widen hyphens and bars. */
+.hero-value, .delta-pill, .kpi-value, .q-table td.text-right, .text-h6 {
+  font-variant-numeric: tabular-nums; }
+.text-h5 { font-weight: 600; letter-spacing: -0.015em; }
+.text-h6, .text-subtitle1 { font-weight: 600; letter-spacing: -0.01em; }
+/* Buttons in sentence case, flat and a little rounder, as current interfaces have them. */
+.q-btn { text-transform: none; letter-spacing: normal; font-weight: 500; }
+.q-btn--standard, .q-btn--rectangle { border-radius: 8px; }
+.q-btn--standard { box-shadow: none !important; }
 body.theme-dark  { --bg: #0d1117; --surface: #161b22; --border: #30363d;
                    --text: #e6edf3; --muted: #8d96a0; --hover: #1f262e; }
 body.theme-dim   { --bg: #22272e; --surface: #2d333b; --border: #444c56;
@@ -46,6 +60,17 @@ body.body--dark { --q-dark-page: var(--bg); --q-dark: var(--surface); }
 .nav-item.disabled { color: var(--muted); opacity: .6; }
 .text-muted { color: var(--muted) !important; }
 .period-card { border-color: var(--q-primary) !important; }
+/* The headline figure, its change and the strip of smaller figures under it. */
+.hero-value { font-size: 2.6rem; font-weight: 650; letter-spacing: -0.025em; line-height: 1.1; }
+.delta-pill { border-radius: 999px; padding: 4px 12px; font-weight: 600; font-size: 0.95rem; }
+.delta-up { color: #2ea043; background: rgba(46, 160, 67, 0.14); }
+.delta-down { color: #f85149; background: rgba(248, 81, 73, 0.14); }
+.delta-flat { color: var(--muted); background: var(--hover); }
+.kpi { gap: 2px; padding: 2px 20px; border-left: 1px solid var(--border); justify-content: center; }
+.kpi-strip > .q-row > .kpi:first-child, .kpi-strip .kpi:first-child { border-left: none;
+                                                                   padding-left: 0; }
+.kpi-label { font-size: 0.75rem; color: var(--muted); }
+.kpi-value { font-size: 1.1rem; font-weight: 600; }
 /* Game switch: separate, roomy pill buttons; the active one is filled with the accent. */
 .game-switch { gap: 8px; background: transparent !important; box-shadow: none !important; }
 .game-switch .q-btn { border-radius: 999px !important; padding: 6px 18px; font-size: 0.95rem;
@@ -61,6 +86,8 @@ body.body--dark { --q-dark-page: var(--bg); --q-dark: var(--surface); }
                     font-weight: 500; color: var(--muted); }
 .segmented .q-btn:hover { color: var(--text); }
 .segmented .q-btn.bg-primary { color: #fff; }
+/* No spinner while a picture loads: frozen mid-turn it looked like a broken glyph. */
+.q-img__loading { display: none !important; }
 a.plain-link { color: inherit; text-decoration: none; }
 a.plain-link:hover { text-decoration: underline; }
 .unread-alert { border-left: 3px solid var(--q-primary); }
@@ -195,6 +222,25 @@ def _nav(items: list[NavItem], active: str) -> None:
             ):
                 ui.icon(item.icon)
                 ui.label(tr(item.label))
+
+
+def kpi(label: str, value: str, color: str = "", tooltip: str = "", *, hint: str = "") -> None:
+    """One figure of a strip of figures (.kpi-strip): a small label over its value, and
+    optionally a line under it (`hint`) or a tooltip."""
+    with ui.column().classes("kpi"):
+        ui.label(label).classes("kpi-label")
+        ui.label(value).classes(f"kpi-value {color}")
+        if hint:
+            ui.label(hint).classes("kpi-label")
+        if tooltip:
+            ui.tooltip(tooltip)
+
+
+def delta_class(change: float | None) -> str:
+    """The tinted pill class of a change: up, down, or neither."""
+    if not change:
+        return "delta-flat"
+    return "delta-up" if change > 0 else "delta-down"
 
 
 def item_url(market_hash_name: str, appid: int) -> str:

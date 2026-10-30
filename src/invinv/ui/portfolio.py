@@ -28,7 +28,7 @@ from invinv.ui.common import (
     time_until,
 )
 from invinv.ui.games import GameSwitch, game_names, searchable_games
-from invinv.ui.layout import SEGMENTED_PROPS, page_frame, themed_chart
+from invinv.ui.layout import SEGMENTED_PROPS, kpi, page_frame, themed_chart
 from invinv.ui.positions import DELETE, PositionForm, add_position, position_dialog
 from invinv.ui.search_box import search_box
 
@@ -174,40 +174,37 @@ def register() -> None:
             banner = ui.column().classes("w-full")
             games = GameSwitch(on_change=lambda: refresh())
 
-            # --- Totals now and for the period chosen in the card's header -------------
-            # The period cards carry the period in their caption and the toggle's colour, so
-            # it is clear that they, the chart and the movers follow the switch.
-            with ui.card().classes("w-full"):
-                with ui.row().classes("w-full items-center"):
-                    ui.label(tr("Portfolio value")).classes("text-subtitle1")
+            # --- Value now, its change over the chosen period, and the chart ------------
+            with ui.card().classes("w-full gap-4"):
+                with ui.row().classes("w-full items-start no-wrap"):
+                    with ui.column().classes("gap-1"):
+                        ui.label(tr("Portfolio value")).classes("text-caption text-muted")
+                        with ui.row().classes("items-center gap-3"):
+                            hero_value = ui.label().classes("hero-value")
+                            hero_value.set_visibility(False)
+                            hero_skeleton = ui.skeleton(width="12rem", height="2.6rem")
+                            hero_change = ui.label().classes("delta-pill")
+                            hero_change.set_visibility(False)
                     ui.space()
                     period_toggle = (
                         ui.toggle(period_options(), value="30D")
                         .props(SEGMENTED_PROPS)
                         .classes("segmented")
                     )
-                # Side by side on wide screens; the period group wraps below on narrow ones.
-                # Each group's share of the row follows its number of cards (_fit_cards).
-                with ui.row().classes("w-full gap-x-10 gap-y-4 items-stretch"):
-                    with ui.column().classes("gap-1 self-stretch") as now_group:
-                        ui.label(tr("Now")).classes("text-overline text-muted")
-                        totals = ui.row().classes("w-full gap-3 items-stretch no-wrap grow")
-                        with totals:
-                            for _ in range(3):
-                                ui.skeleton(height="6.75rem").classes("flex-1")
-                        _fit_cards(now_group, 3)
-                    with ui.column().classes("gap-1 self-stretch") as period_group:
-                        _fit_cards(period_group, 3)
-                        with ui.row().classes("items-baseline gap-2"):
+                # One strip of figures: the totals now, then the period's range.
+                with ui.row().classes("w-full items-stretch gap-y-3 kpi-strip"):
+                    totals = ui.row().classes("items-stretch gap-0 no-wrap")
+                    with totals:
+                        for _ in range(3):
+                            ui.skeleton(width="8rem", height="2.6rem").classes("mx-4")
+                    ui.space()
+                    with ui.row().classes("items-stretch gap-0 no-wrap"):
+                        with ui.column().classes("kpi justify-center"):
                             period_caption = ui.label(
                                 tr("For the period · {period}", period=period_toggle.value)
-                            ).classes("text-overline text-primary")
-                            period_since = ui.label().classes("text-caption text-muted")
-                        stats = ui.row().classes("w-full gap-3 items-stretch no-wrap grow")
-                        with stats:
-                            # Change, highest and lowest, until the portfolio is valued.
-                            for _ in range(3):
-                                ui.skeleton(height="6.75rem").classes("flex-1")
+                            ).classes("kpi-label text-primary")
+                            period_since = ui.label().classes("kpi-label")
+                        stats = ui.row().classes("items-stretch gap-0 no-wrap")
                 chart_skeleton = ui.skeleton(height="18rem").classes("w-full")
                 chart = ui.echart({}).classes("w-full h-72")
                 chart.set_visibility(False)
@@ -293,21 +290,22 @@ def register() -> None:
                     if games.appid is None
                     else await load_portfolio(runtime.sessions, games.appid)
                 )
+                hero_value.text = fmt_usd(portfolio.value)
+                hero_value.set_visibility(True)
+                hero_skeleton.set_visibility(False)
                 totals.clear()
                 with totals:
-                    _stat(tr("Value"), fmt_usd(portfolio.value))
-                    _stat(tr("You receive after fees"), fmt_usd(portfolio.proceeds))
+                    kpi(tr("You receive after fees"), fmt_usd(portfolio.proceeds))
                     if portfolio.cost:
-                        _stat(
+                        kpi(
                             tr("Profit / loss"),
                             f"{fmt_usd(portfolio.pnl)} ({portfolio.pnl / portfolio.cost:+.1%})",
                             pct_color(portfolio.pnl),
                             tr("after fees, positions with a purchase price"),
                         )
-                    _stat(tr("Positions"), str(len(portfolio.positions)))
+                    kpi(tr("Positions"), f"{len(portfolio.positions):,}")
                     if portfolio.unpriced:
-                        _stat(tr("Waiting for prices"), str(portfolio.unpriced))
-                _fit_cards(now_group, len(totals.default_slot.children))
+                        kpi(tr("Waiting for prices"), f"{portfolio.unpriced:,}")
                 table.columns = columns(
                     with_pnl=any(p.pnl is not None for p in portfolio.positions)
                 )
@@ -359,7 +357,9 @@ def register() -> None:
                         date=f"{history.index[0]:%Y-%m-%d}",
                         item=portfolio.newest_item,
                     )
-                _period_stats(stats, period_stats(portfolio.value_history, PERIODS[period]))
+                change = period_stats(portfolio.value_history, PERIODS[period])
+                _period_stats(stats, change)
+                _delta_pill(hero_change, change)
                 _movers(movers, portfolio, period)
 
             async def add_manual(result: SearchResult) -> bool:
@@ -470,21 +470,18 @@ def register() -> None:
             ui.timer(60, refresh)
 
 
-def _fit_cards(group: ui.column, cards: int) -> None:
-    """Size a group of stat cards by its card count, so no card is squeezed under another."""
-    min_width = cards * 9 + (cards - 1) * 0.75  # rem: min-w-36 cards with gap-3 between
-    group.style(f"flex: {cards} 1 0; min-width: min({min_width}rem, 100%)")
-
-
-def _stat(label: str, value: str, color: str = "", hint: str = "", *, period: bool = False) -> None:
-    # One height for every card, with or without a hint line, so rows line up.
-    with ui.card().classes(
-        "flex-1 basis-0 min-w-36 min-h-[6.75rem]" + (" period-card" if period else "")
-    ):
-        ui.label(label).classes("text-caption text-muted")
-        ui.label(value).classes(f"text-h6 {color}")
-        if hint:
-            ui.label(hint).classes("text-caption text-muted")
+def _delta_pill(pill: ui.label, stats: PeriodStats | None) -> None:
+    """The period's change beside the portfolio's value: a tinted pill with an arrow."""
+    if stats is None:
+        pill.set_visibility(False)
+        return
+    up = stats.change >= 0
+    text = f"{'▲' if up else '▼'} {fmt_usd(abs(stats.change))}"
+    if stats.change_pct is not None:
+        text += f" · {stats.change_pct:+.1%}"
+    pill.text = text
+    pill.classes(remove="delta-up delta-down", add="delta-up" if up else "delta-down")
+    pill.set_visibility(True)
 
 
 def _period_stats(container: ui.row, stats: PeriodStats | None) -> None:
@@ -492,16 +489,9 @@ def _period_stats(container: ui.row, stats: PeriodStats | None) -> None:
     if stats is None:
         return
     with container:
-        _stat(
-            tr("Change"),
-            f"{'+' if stats.change >= 0 else '-'}${abs(stats.change):,.2f}"
-            + (f" ({stats.change_pct:+.1%})" if stats.change_pct is not None else ""),
-            pct_color(stats.change),
-            tr("from {value}", value=fmt_usd(stats.start)),
-            period=True,
-        )
-        _stat(tr("Highest"), fmt_usd(stats.high), "", f"{stats.high_on:%Y-%m-%d}", period=True)
-        _stat(tr("Lowest"), fmt_usd(stats.low), "", f"{stats.low_on:%Y-%m-%d}", period=True)
+        kpi(tr("From"), fmt_usd(stats.start))
+        kpi(tr("Highest"), fmt_usd(stats.high), tooltip=f"{stats.high_on:%Y-%m-%d}")
+        kpi(tr("Lowest"), fmt_usd(stats.low), tooltip=f"{stats.low_on:%Y-%m-%d}")
 
 
 def _movers(container: ui.row, portfolio: Portfolio, period: str) -> None:
@@ -524,8 +514,7 @@ def _movers(container: ui.row, portfolio: Portfolio, period: str) -> None:
             (tr("Top gainers, {period}", period=label), gainers),
             (tr("Top losers, {period}", period=label), losers),
         ):
-            # Outlined like the period cards: these follow the period switch too.
-            with ui.card().classes("grow min-w-72 period-card"):
+            with ui.card().classes("grow min-w-72"):
                 ui.label(title).classes("text-caption text-primary")
                 if not entries:
                     ui.label("—").classes("text-muted")
@@ -579,6 +568,26 @@ async def _banner(container: ui.column) -> None:
                         next=time_until(job.run_after),
                     )
                 ).classes("text-caption text-muted")
+        return
+    private = account is not None and (
+        (account.profile is not None and account.profile.privacy != "public")
+        or (
+            account.job is not None
+            and account.job.status == "error"
+            and "not public" in (account.job.last_error or "")
+        )
+    )
+    if private:
+        # A deliberate choice as often as not (pinned positions stay): say it quietly.
+        with container, ui.row().classes("items-center gap-2 no-wrap"):
+            ui.icon("lock", size="xs").classes("text-muted")
+            ui.label(
+                tr(
+                    "Your inventory is private: positions stay as they are (pinned ones keep "
+                    "their quantity), new items are not imported."
+                )
+            ).classes("text-caption text-muted")
+            ui.link(tr("Settings"), "/settings").classes("text-caption")
         return
     with container, ui.card().classes("w-full"), ui.row().classes("w-full items-center"):
         ui.icon("warning" if problem else "link", color="amber" if problem else None)

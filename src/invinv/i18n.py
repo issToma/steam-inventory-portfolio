@@ -502,4 +502,9 @@ RU: dict[str, str] = {
     "Count them all again": "Вернуть все",
     "{item} is left out of the chart": "{item} исключён из графика",
     "last price check {ago}": "последняя сверка цен {ago}",
+    "From": "Было",
+    "Your inventory is private: positions stay as they are (pinned ones keep their quantity), new items are not imported.": (
+        "Инвентарь закрыт: позиции остаются как есть (закреплённые сохраняют количество), "
+        "новые предметы не импортируются."
+    ),
 }

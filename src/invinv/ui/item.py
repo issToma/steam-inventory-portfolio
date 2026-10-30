@@ -32,9 +32,9 @@ from invinv.pricing import Listing, Quote, instant_sale, listing_of, quote, rece
 from invinv.runtime import runtime
 from invinv.search import STEAM_MAX_WAIT
 from invinv.ui.alerts_page import open_item_alerts
-from invinv.ui.common import fmt_pct, fmt_usd, icon_url, pct_color, rarity_color, time_ago
+from invinv.ui.common import fmt_pct, fmt_usd, icon_url, rarity_color, time_ago
 from invinv.ui.games import game_names, name_of
-from invinv.ui.layout import SEGMENTED_PROPS, page_frame, themed_chart
+from invinv.ui.layout import SEGMENTED_PROPS, delta_class, kpi, page_frame, themed_chart
 from invinv.ui.portfolio import GRID_COLOR
 from invinv.ui.positions import add_position
 
@@ -150,14 +150,6 @@ def _chart_options(
     }
 
 
-def _stat(label: str, value: str, color: str = "", hint: str = "") -> None:
-    with ui.card().classes("min-w-36"):
-        ui.label(label).classes("text-caption text-muted")
-        ui.label(value).classes(f"text-h6 {color}")
-        if hint:
-            ui.label(hint).classes("text-caption text-muted")
-
-
 def _price_hint(current: Quote, listing: Listing | None) -> str:
     if current.source == "listing" and listing is not None:
         return tr("cheapest listing · {ago}", ago=time_ago(listing.checked_at))
@@ -224,8 +216,8 @@ def _render_book(book: OrderBook, rate: Decimal, held: int, fee: float) -> None:
         return fmt_usd(float(amount * rate)) if amount is not None else "—"
 
     bid = book.best_bid
-    with ui.row().classes("gap-3"):
-        _stat(
+    with ui.row().classes("w-full items-stretch gap-y-3 kpi-strip"):
+        kpi(
             tr("Sell now"),
             usd(bid),
             hint=tr(
@@ -235,11 +227,11 @@ def _render_book(book: OrderBook, rate: Decimal, held: int, fee: float) -> None:
             if bid is not None
             else tr("no buy orders"),
         )
-        _stat(tr("Cheapest listing"), usd(book.best_ask))
+        kpi(tr("Cheapest listing"), usd(book.best_ask))
         if bid is not None and book.best_ask:
-            _stat(tr("Spread"), f"{(book.best_ask - bid) / book.best_ask:.1%}")
-        _stat(tr("Buy orders"), f"{book.buy_orders:,}")
-        _stat(tr("Listings"), f"{book.sell_listings:,}")
+            kpi(tr("Spread"), f"{(book.best_ask - bid) / book.best_ask:.1%}")
+        kpi(tr("Buy orders"), f"{book.buy_orders:,}")
+        kpi(tr("Listings"), f"{book.sell_listings:,}")
     if held:
         sale = instant_sale([(price * rate, quantity) for price, quantity in book.bids], held, fee)
         text = tr(
@@ -371,38 +363,48 @@ def register() -> None:
                     value=fmt_usd(held * current.price),
                 )
 
-            with ui.row().classes("gap-3"):
-                _stat(tr("Price"), fmt_usd(current.price), hint=_price_hint(current, listing))
-                median = listing.median_24h_usd if listing else None
-                _stat(
-                    tr("Median sale, 24h"),
-                    fmt_usd(float(median)) if median is not None else "—",
-                    hint=tr_n(listing.sales_24h or 0, "{n} sale", "{n} sales")
-                    if listing is not None
-                    else "",
-                )
-                _stat(
-                    tr("Last sale"),
-                    fmt_usd(metrics.last_price),
-                    hint=time_ago(metrics.last_ts.to_pydatetime()),
-                )
-                for label, span in CHANGE_WINDOWS.items():
-                    value = change_since(views.robust, current.price, span, datetime.now(UTC))
-                    _stat(label, fmt_pct(value), pct_color(value))
-                _stat(
-                    tr("Volatility (30d, daily)"),
-                    "—" if metrics.volatility_30d is None else f"{metrics.volatility_30d:.1%}",
-                )
-                _stat(
-                    tr("Sales per day (30d)"),
-                    "—"
-                    if metrics.avg_daily_volume_30d is None
-                    else f"{metrics.avg_daily_volume_30d:,.0f}",
-                )
-                _stat(
-                    tr("You receive after fee"),
-                    fmt_usd(seller_proceeds(round(current.price * 100), fee) / 100),
-                )
+            now = datetime.now(UTC)
+            changes = {
+                label: change_since(views.robust, current.price, span, now)
+                for label, span in CHANGE_WINDOWS.items()
+            }
+            median = listing.median_24h_usd if listing else None
+            with ui.card().classes("w-full gap-3"):
+                # The price and how it moved, then the details in one strip.
+                with ui.row().classes("items-center gap-3"):
+                    ui.label(fmt_usd(current.price)).classes("hero-value")
+                    for label, change in changes.items():
+                        ui.label(f"{label} {fmt_pct(change)}").classes(
+                            f"delta-pill {delta_class(change)}"
+                        )
+                ui.label(_price_hint(current, listing)).classes("kpi-label")
+                with ui.row().classes("w-full items-stretch gap-y-3 kpi-strip"):
+                    kpi(
+                        tr("Median sale, 24h"),
+                        fmt_usd(float(median)) if median is not None else "—",
+                        tooltip=tr_n(listing.sales_24h or 0, "{n} sale", "{n} sales")
+                        if listing is not None
+                        else "",
+                    )
+                    kpi(
+                        tr("Last sale"),
+                        fmt_usd(metrics.last_price),
+                        tooltip=time_ago(metrics.last_ts.to_pydatetime()),
+                    )
+                    kpi(
+                        tr("Sales per day (30d)"),
+                        "—"
+                        if metrics.avg_daily_volume_30d is None
+                        else f"{metrics.avg_daily_volume_30d:,.0f}",
+                    )
+                    kpi(
+                        tr("Volatility (30d, daily)"),
+                        "—" if metrics.volatility_30d is None else f"{metrics.volatility_30d:.1%}",
+                    )
+                    kpi(
+                        tr("You receive after fee"),
+                        fmt_usd(seller_proceeds(round(current.price * 100), fee) / 100),
+                    )
 
             with ui.row().classes("items-center gap-4"):
                 range_toggle = (
