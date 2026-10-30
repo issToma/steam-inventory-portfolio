@@ -27,7 +27,7 @@ from invinv.ui.common import (
     sparkline_points,
 )
 from invinv.ui.games import GameSwitch, game_names, searchable_games
-from invinv.ui.layout import page_frame
+from invinv.ui.layout import page_content
 from invinv.ui.search_box import search_box
 
 # Enough history for the 30-day metrics on the overview.
@@ -110,81 +110,78 @@ async def _rows() -> list[dict[str, Any]]:
     return rows
 
 
-def register() -> None:
-    @ui.page("/watchlist")
-    async def watchlist_page() -> None:
-        with page_frame("watchlist"):
-            with ui.row().classes("w-full items-center"):
-                with ui.column().classes("gap-0"):
-                    ui.label(tr("Watchlist")).classes("text-h5")
-                    ui.label(tr("Items you follow without owning them.")).classes("text-muted")
-                ui.space()
-                ui.button(tr("Add item"), icon="add", on_click=lambda: open_add_dialog())
-            games = GameSwitch(on_change=lambda: refresh())
+async def content() -> None:
+    """The watchlist page's content (in the app shell, see ui.shell)."""
+    with page_content():
+        with ui.row().classes("w-full items-center"):
+            with ui.column().classes("gap-0"):
+                ui.label(tr("Watchlist")).classes("text-h5")
+                ui.label(tr("Items you follow without owning them.")).classes("text-muted")
+            ui.space()
+            ui.button(tr("Add item"), icon="add", on_click=lambda: open_add_dialog())
+        games = GameSwitch(on_change=lambda: refresh())
 
-            async def watched() -> set[str]:
-                async with runtime.sessions() as session:
-                    return {i.market_hash_name for i in await repo.watchlist_items(session)}
+        async def watched() -> set[str]:
+            async with runtime.sessions() as session:
+                return {i.market_hash_name for i in await repo.watchlist_items(session)}
 
-            async def add(result: SearchResult) -> bool:
-                async with runtime.sessions() as session:
-                    await repo.add_to_watchlist(
-                        session, result.market_hash_name, result, appid=result.appid
-                    )
-                    await session.commit()
-                ui.notify(
-                    tr(
-                        "Added {name}; history arrives in about a minute",
-                        name=result.market_hash_name,
-                    )
+        async def add(result: SearchResult) -> bool:
+            async with runtime.sessions() as session:
+                await repo.add_to_watchlist(
+                    session, result.market_hash_name, result, appid=result.appid
                 )
-                await refresh()
-                return True
-
-            async def open_add_dialog() -> None:
-                with ui.dialog() as dialog, ui.card().classes("w-[48rem] max-w-full"):
-                    ui.label(tr("Add to watchlist")).classes("text-h6")
-                    search_box(
-                        action_label=tr("Add"),
-                        on_pick=add,
-                        already=watched,
-                        already_label=tr("In watchlist"),
-                        games=await searchable_games(),
-                    )
-                dialog.open()
-
-            table = (
-                ui.table(columns=columns(), rows=[], row_key="id")
-                .classes("w-full")
-                .props("loading")
+                await session.commit()
+            ui.notify(
+                tr(
+                    "Added {name}; history arrives in about a minute",
+                    name=result.market_hash_name,
+                )
             )
-            table.add_slot("body-cell-name", NAME_CELL_SLOT)
-            table.add_slot("body-cell-trend", SPARK_CELL_SLOT)
-            table.add_slot(
-                "body-cell-remove",
-                '<q-td :props="props">'
-                '<q-btn flat dense round size="sm" icon="close" color="grey" '
-                "@click.stop=\"$parent.$emit('remove', props.row)\" />"
-                "</q-td>",
-            )
-            table.on("rowClick", lambda e: ui.navigate.to(f"/item/{e.args[1]['id']}"))
+            await refresh()
+            return True
 
-            async def remove(event: Any) -> None:
-                row = event.args
-                async with runtime.sessions() as session:
-                    await repo.remove_from_watchlist(session, row["id"])
-                    await session.commit()
-                ui.notify(tr("Removed {name} from the watchlist", name=row["name"]))
-                await refresh()
+        async def open_add_dialog() -> None:
+            with ui.dialog() as dialog, ui.card().classes("w-[48rem] max-w-full"):
+                ui.label(tr("Add to watchlist")).classes("text-h6")
+                search_box(
+                    action_label=tr("Add"),
+                    on_pick=add,
+                    already=watched,
+                    already_label=tr("In watchlist"),
+                    games=await searchable_games(),
+                )
+            dialog.open()
 
-            table.on("remove", remove)
+        table = (
+            ui.table(columns=columns(), rows=[], row_key="id").classes("w-full").props("loading")
+        )
+        table.add_slot("body-cell-name", NAME_CELL_SLOT)
+        table.add_slot("body-cell-trend", SPARK_CELL_SLOT)
+        table.add_slot(
+            "body-cell-remove",
+            '<q-td :props="props">'
+            '<q-btn flat dense round size="sm" icon="close" color="grey" '
+            "@click.stop=\"$parent.$emit('remove', props.row)\" />"
+            "</q-td>",
+        )
+        table.on("rowClick", lambda e: ui.navigate.to(f"/item/{e.args[1]['id']}"))
 
-            async def refresh() -> None:
-                rows = await _rows()
-                games.set_games((row["appid"] for row in rows), await game_names())
-                table.rows = [r for r in rows if games.appid in (None, r["appid"])]
-                table.props(remove="loading")
-                table.update()
+        async def remove(event: Any) -> None:
+            row = event.args
+            async with runtime.sessions() as session:
+                await repo.remove_from_watchlist(session, row["id"])
+                await session.commit()
+            ui.notify(tr("Removed {name} from the watchlist", name=row["name"]))
+            await refresh()
 
-            ui.timer(0.05, refresh, once=True)
-            ui.timer(60, refresh)
+        table.on("remove", remove)
+
+        async def refresh() -> None:
+            rows = await _rows()
+            games.set_games((row["appid"] for row in rows), await game_names())
+            table.rows = [r for r in rows if games.appid in (None, r["appid"])]
+            table.props(remove="loading")
+            table.update()
+
+        ui.timer(0.05, refresh, once=True)
+        ui.timer(60, refresh)

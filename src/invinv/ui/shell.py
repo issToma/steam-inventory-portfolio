@@ -10,14 +10,24 @@ from collections.abc import Awaitable, Callable
 from fastapi import Request
 from nicegui import ui
 
-from invinv.ui import portfolio
+from invinv.ui import alerts_page, market, portfolio, settings_page, watchlist
 from invinv.ui.layout import page_frame
 
 ROUTES: dict[str, Callable[[], Awaitable[None]]] = {
     "/": portfolio.content,
+    "/watchlist": watchlist.content,
+    "/alerts": alerts_page.content,
+    "/market": market.content,
+    "/settings": settings_page.content,
 }
 # The navigation entry each route belongs to.
-_NAV_KEYS = {"/": "portfolio"}
+_NAV_KEYS = {
+    "/": "portfolio",
+    "/watchlist": "watchlist",
+    "/alerts": "alerts",
+    "/market": "market",
+    "/settings": "settings",
+}
 
 
 def register() -> None:

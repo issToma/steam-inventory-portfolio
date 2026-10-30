@@ -13,7 +13,7 @@ from invinv.pricing import listing_of
 from invinv.runtime import runtime
 from invinv.ui.common import icon_url, rarity_color, time_ago
 from invinv.ui.games import searchable_games
-from invinv.ui.layout import item_url, page_frame
+from invinv.ui.layout import item_url, page_content
 from invinv.ui.search_box import search_box
 
 
@@ -171,107 +171,104 @@ async def _telegram_hint() -> None:
             ui.link(tr("Set up Telegram to get them on your phone."), "/settings#telegram")
 
 
-def register() -> None:
-    @ui.page("/alerts")
-    async def alerts_page() -> None:
-        with page_frame("alerts"):
-            with ui.row().classes("w-full items-center"):
-                with ui.column().classes("gap-0"):
-                    ui.label(tr("Alerts")).classes("text-h5")
-                    ui.label(
-                        tr("Get notified when a price reaches a level or moves fast.")
-                    ).classes("text-muted")
-                ui.space()
-                ui.button(tr("New alert"), icon="add_alert", on_click=lambda: open_new())
-            await _telegram_hint()
+async def content() -> None:
+    """The alerts page's content (in the app shell, see ui.shell)."""
+    with page_content():
+        with ui.row().classes("w-full items-center"):
+            with ui.column().classes("gap-0"):
+                ui.label(tr("Alerts")).classes("text-h5")
+                ui.label(tr("Get notified when a price reaches a level or moves fast.")).classes(
+                    "text-muted"
+                )
+            ui.space()
+            ui.button(tr("New alert"), icon="add_alert", on_click=lambda: open_new())
+        await _telegram_hint()
 
-            with ui.row().classes("w-full gap-4 items-start"):
-                with ui.card().classes("flex-1 min-w-[22rem]"):
-                    ui.label(tr("Notifications")).classes("text-h6")
-                    feed = ui.column().classes("w-full gap-2")
-                with ui.card().classes("flex-1 min-w-[22rem]"):
-                    ui.label(tr("Rules")).classes("text-h6")
-                    rules = ui.column().classes("w-full gap-1")
+        with ui.row().classes("w-full gap-4 items-start"):
+            with ui.card().classes("flex-1 min-w-[22rem]"):
+                ui.label(tr("Notifications")).classes("text-h6")
+                feed = ui.column().classes("w-full gap-2")
+            with ui.card().classes("flex-1 min-w-[22rem]"):
+                ui.label(tr("Rules")).classes("text-h6")
+                rules = ui.column().classes("w-full gap-1")
 
-            async def render_rules() -> None:
-                async with runtime.sessions() as session:
-                    found = await repo.alert_rules(session)
-                rules.clear()
-                with rules:
-                    if not found:
-                        ui.label(tr("No alerts yet. Add one here or from an item's page.")).classes(
-                            "text-muted"
-                        )
-                    for rule, item in found:
+        async def render_rules() -> None:
+            async with runtime.sessions() as session:
+                found = await repo.alert_rules(session)
+            rules.clear()
+            with rules:
+                if not found:
+                    ui.label(tr("No alerts yet. Add one here or from an item's page.")).classes(
+                        "text-muted"
+                    )
+                for rule, item in found:
+                    with ui.row().classes("w-full items-center no-wrap gap-2"):
+                        _item_link(item.market_hash_name, item.appid, item.icon_url)
+                    with ui.element("div").classes("w-full pl-10"):
+                        _rule_row(rule, render_rules)
+
+        async def render_feed() -> None:
+            async with runtime.sessions() as session:
+                events = await repo.alert_events(session)
+                # Highlighted on this visit, read from now on.
+                unread = {event.id for event, _ in events if event.read_at is None}
+                await repo.mark_alerts_read(session)
+                await session.commit()
+            language = current_language()
+            feed.clear()
+            with feed:
+                if not events:
+                    ui.label(tr("Nothing has fired yet.")).classes("text-muted")
+                for event, item in events:
+                    marker = "unread-alert" if event.id in unread else ""
+                    with ui.column().classes(f"w-full gap-0 pl-3 {marker}"):
                         with ui.row().classes("w-full items-center no-wrap gap-2"):
-                            _item_link(item.market_hash_name, item.appid, item.icon_url)
-                        with ui.element("div").classes("w-full pl-10"):
-                            _rule_row(rule, render_rules)
-
-            async def render_feed() -> None:
-                async with runtime.sessions() as session:
-                    events = await repo.alert_events(session)
-                    # Highlighted on this visit, read from now on.
-                    unread = {event.id for event, _ in events if event.read_at is None}
-                    await repo.mark_alerts_read(session)
-                    await session.commit()
-                language = current_language()
-                feed.clear()
-                with feed:
-                    if not events:
-                        ui.label(tr("Nothing has fired yet.")).classes("text-muted")
-                    for event, item in events:
-                        marker = "unread-alert" if event.id in unread else ""
-                        with ui.column().classes(f"w-full gap-0 pl-3 {marker}"):
-                            with ui.row().classes("w-full items-center no-wrap gap-2"):
-                                color = rarity_color(
-                                    item.rarity, item.quality, item.name_color, item.appid
-                                )
-                                _item_link(item.market_hash_name, item.appid, item.icon_url, color)
-                                ui.space()
-                                ui.label(time_ago(event.created_at)).classes(
-                                    "text-caption text-muted"
-                                )
-                            rule = alerts.describe(
-                                language, event.kind, event.threshold, event.window_hours
+                            color = rarity_color(
+                                item.rarity, item.quality, item.name_color, item.appid
                             )
-                            summary = alerts.event_summary(language, event)
-                            ui.label(f"{rule}: {summary}").classes("pl-10")
+                            _item_link(item.market_hash_name, item.appid, item.icon_url, color)
+                            ui.space()
+                            ui.label(time_ago(event.created_at)).classes("text-caption text-muted")
+                        rule = alerts.describe(
+                            language, event.kind, event.threshold, event.window_hours
+                        )
+                        summary = alerts.event_summary(language, event)
+                        ui.label(f"{rule}: {summary}").classes("pl-10")
 
-            async def pick(result: SearchResult) -> bool:
-                picked.clear()
-                with picked:
-                    ui.label(result.market_hash_name).classes("text-subtitle1")
-                    alert_form(
-                        result.market_hash_name,
-                        appid=result.appid,
-                        found=result,
-                        on_saved=on_new_saved,
-                    )
-                return False
+        async def pick(result: SearchResult) -> bool:
+            picked.clear()
+            with picked:
+                ui.label(result.market_hash_name).classes("text-subtitle1")
+                alert_form(
+                    result.market_hash_name,
+                    appid=result.appid,
+                    found=result,
+                    on_saved=on_new_saved,
+                )
+            return False
 
-            async def on_new_saved() -> None:
-                new_dialog.close()
-                await render_rules()
-
-            with ui.dialog() as new_dialog, ui.card().classes("w-[48rem] max-w-full"):
-                ui.label(tr("New alert")).classes("text-h6")
-                picked = ui.column().classes("w-full")
-                search_slot = ui.column().classes("w-full")
-
-            async def open_new() -> None:
-                picked.clear()
-                search_slot.clear()
-                with search_slot:
-                    search_box(
-                        action_label=tr("Choose"),
-                        on_pick=pick,
-                        games=await searchable_games(),
-                    )
-                new_dialog.open()
-
+        async def on_new_saved() -> None:
+            new_dialog.close()
             await render_rules()
-            await render_feed()
+
+        with ui.dialog() as new_dialog, ui.card().classes("w-[48rem] max-w-full"):
+            ui.label(tr("New alert")).classes("text-h6")
+            picked = ui.column().classes("w-full")
+            search_slot = ui.column().classes("w-full")
+
+        async def open_new() -> None:
+            picked.clear()
+            search_slot.clear()
+            with search_slot:
+                search_box(
+                    action_label=tr("Choose"),
+                    on_pick=pick,
+                    games=await searchable_games(),
+                )
+            new_dialog.open()
+
+        await render_rules()
+        await render_feed()
 
 
 def _item_link(name: str, appid: int, icon: str | None, color: str | None = None) -> None:
