@@ -84,6 +84,7 @@ class PositionInput:
     rarity: str | None = None
     quality: str | None = None
     pinned: bool = False
+    chart_excluded: bool = False
     appid: int = field(kw_only=True)
     name_color: str | None = None
     publisher_fee: float = PUBLISHER_FEE_RATE
@@ -136,6 +137,7 @@ class Position:
     quality: str | None = None
     trend: tuple[float, ...] = ()
     pinned: bool = False
+    chart_excluded: bool = False
     appid: int = field(kw_only=True)
     name_color: str | None = None
     # "listing" (the cheapest listing now) or "sales" (nothing listed: recent sales).
@@ -159,6 +161,8 @@ class Portfolio:
     value_history: pd.Series  # daily, USD
     # The item whose first sale starts value_history (the newest on the market), if any.
     newest_item: str | None = None
+    newest_holding_id: int | None = None
+    chart_excluded: int = 0  # positions left out of value_history
 
 
 def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None) -> Portfolio:
@@ -218,6 +222,7 @@ def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None
             quality=p.quality,
             trend=computed.trend,
             pinned=p.pinned,
+            chart_excluded=p.chart_excluded,
             appid=p.appid,
             name_color=p.name_color,
             changes=tuple((key, changes[key]) for key in PERIODS),
@@ -227,6 +232,7 @@ def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None
     ]
     positions.sort(key=lambda pos: pos.value or 0, reverse=True)
     with_pnl = [pos for pos in positions if pos.pnl is not None]
+    newest = _newest_item(inputs, dailies)
     return Portfolio(
         positions=positions,
         value=total,
@@ -235,18 +241,26 @@ def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None
         pnl=sum(pos.pnl for pos in with_pnl if pos.pnl is not None),
         unpriced=sum(1 for pos in positions if pos.price is None),
         value_history=value_history(inputs, dailies),
-        newest_item=_newest_item(inputs, dailies),
+        newest_item=newest[1] if newest else None,
+        newest_holding_id=newest[0] if newest else None,
+        chart_excluded=sum(1 for p in inputs if p.chart_excluded),
     )
 
 
-def _newest_item(inputs: Sequence[PositionInput], dailies: Mapping[int, pd.Series]) -> str | None:
-    """The item that came to the market last, which is where value_history() starts."""
+def _newest_item(
+    inputs: Sequence[PositionInput], dailies: Mapping[int, pd.Series]
+) -> tuple[int, str] | None:
+    """(holding id, name) of the item that came to the market last among those in the chart:
+    value_history() starts on its first sale."""
     firsts = []
     for p in inputs:
         daily = dailies.get(p.holding_id)
-        if daily is not None and not daily.empty:
-            firsts.append((daily.index[0], p.name))
-    return max(firsts)[1] if firsts else None
+        if daily is not None and not daily.empty and not p.chart_excluded:
+            firsts.append((daily.index[0], p.holding_id, p.name))
+    if not firsts:
+        return None
+    _, holding_id, name = max(firsts)
+    return holding_id, name
 
 
 def _changes(
@@ -268,10 +282,13 @@ def value_history(
 
     It starts on the day the last of the positions' items had its first sale: before that
     the portfolio as it is today could not have existed, and comparing with a handful of
-    older items would be misleading. `dailies` holds daily price series already built.
+    older items would be misleading. Positions excluded from the chart do not count.
+    `dailies` holds daily price series already built.
     """
     columns: list[tuple[np.ndarray, np.ndarray]] = []
     for p in inputs:
+        if p.chart_excluded:
+            continue
         daily = dailies.get(p.holding_id) if dailies else None
         if daily is None:
             if p.history.empty:
@@ -368,6 +385,7 @@ async def _compute_portfolio(sessions: SessionMaker, appid: int | None = None) -
             rarity=item.rarity,
             quality=item.quality,
             pinned=holding.pinned,
+            chart_excluded=holding.chart_excluded,
             appid=item.appid,
             name_color=item.name_color,
             publisher_fee=fee_rate(item),

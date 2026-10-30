@@ -63,6 +63,14 @@ RU_PLURAL: dict[tuple[str, str], tuple[str, str, str]] = {
     ("{n} minute", "{n} minutes"): ("{n} минуту", "{n} минуты", "{n} минут"),
     ("{n} item", "{n} items"): ("{n} предмет", "{n} предмета", "{n} предметов"),
     ("{n} sale", "{n} sales"): ("{n} продажа", "{n} продажи", "{n} продаж"),
+    (
+        "{n} item is left out of the chart and the period stats.",
+        "{n} items are left out of the chart and the period stats.",
+    ): (
+        "{n} предмет не учитывается в графике и статистике периода.",
+        "{n} предмета не учитываются в графике и статистике периода.",
+        "{n} предметов не учитываются в графике и статистике периода.",
+    ),
     ("Updating · {n} task queued", "Updating · {n} tasks queued"): (
         "Обновляем · в очереди {n} задача",
         "Обновляем · в очереди {n} задачи",
@@ -488,4 +496,9 @@ RU: dict[str, str] = {
         "Раньше портфеля в нынешнем составе не существовало."
     ),
     "{n} more": "Ещё {n}",
+    "Count it in the value chart again": "Снова учитывать в графике стоимости",
+    "Leave it out of the value chart": "Не учитывать в графике стоимости",
+    "Leave it out of the chart": "Исключить из графика",
+    "Count them all again": "Вернуть все",
+    "{item} is left out of the chart": "{item} исключён из графика",
 }

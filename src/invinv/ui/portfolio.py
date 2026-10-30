@@ -5,7 +5,7 @@ from nicegui import ui
 
 from invinv.core.parsers import SearchResult
 from invinv.db import repo
-from invinv.i18n import tr
+from invinv.i18n import tr, tr_n
 from invinv.portfolio import (
     PERIODS,
     PeriodStats,
@@ -64,6 +64,7 @@ def _all_columns() -> list[dict[str, Any]]:
         {"name": "trend", "label": "", "field": "spark", "align": "center"},
         {"name": "pnl", "label": tr("P&L"), "field": "pnl", "align": "right"},
         {"name": "pin", "label": "", "field": "pinned", "align": "center"},
+        {"name": "chart", "label": "", "field": "chart_excluded", "align": "center"},
         {"name": "actions", "label": "", "field": "id", "align": "right"},
     ]
 
@@ -90,6 +91,10 @@ def _row(p: Position) -> dict[str, Any]:
         "source": p.source,
         "pinnable": p.source == repo.SOURCE_INVENTORY,
         "pinned": p.pinned,
+        "chart_excluded": p.chart_excluded,
+        "chart_tip": tr("Count it in the value chart again")
+        if p.chart_excluded
+        else tr("Leave it out of the value chart"),
     }
 
 
@@ -173,7 +178,17 @@ def register() -> None:
                 with ui.row().classes("items-center gap-2 no-wrap") as start_note:
                     ui.icon("info", size="xs").classes("text-muted")
                     start_text = ui.label().classes("text-caption text-muted")
+                    ui.button(
+                        tr("Leave it out of the chart"), on_click=lambda: exclude_newest()
+                    ).props("flat dense no-caps size=sm color=primary")
                 start_note.set_visibility(False)
+                with ui.row().classes("items-center gap-2 no-wrap") as excluded_note:
+                    ui.icon("hide_source", size="xs").classes("text-orange")
+                    excluded_text = ui.label().classes("text-caption text-muted")
+                    ui.button(tr("Count them all again"), on_click=lambda: include_all()).props(
+                        "flat dense no-caps size=sm color=primary"
+                    )
+                excluded_note.set_visibility(False)
             movers = ui.row().classes("w-full gap-3")
 
             # --- Positions ---------------------------------------------------------------
@@ -209,6 +224,16 @@ def register() -> None:
                 ":icon=\"props.row.pinned ? 'lock' : 'lock_open'\" "
                 ":color=\"props.row.pinned ? 'amber' : 'grey'\" "
                 "@click.stop=\"$parent.$emit('pin', props.row)\" />"
+                "</q-td>",
+            )
+            table.add_slot(
+                "body-cell-chart",
+                '<q-td :props="props">'
+                '<q-btn flat dense round size="sm" '
+                ":icon=\"props.row.chart_excluded ? 'hide_source' : 'show_chart'\" "
+                ":color=\"props.row.chart_excluded ? 'orange' : 'grey'\" "
+                "@click.stop=\"$parent.$emit('chart', props.row)\">"
+                "<q-tooltip>{{ props.row.chart_tip }}</q-tooltip></q-btn>"
                 "</q-td>",
             )
             table.add_slot("body-cell-trend", SPARK_CELL_SLOT)
@@ -285,6 +310,12 @@ def register() -> None:
                     else ""
                 )
                 start_note.set_visibility(cut and portfolio.newest_item is not None)
+                excluded_note.set_visibility(portfolio.chart_excluded > 0)
+                excluded_text.text = tr_n(
+                    portfolio.chart_excluded,
+                    "{n} item is left out of the chart and the period stats.",
+                    "{n} items are left out of the chart and the period stats.",
+                )
                 if portfolio.newest_item and not history.empty:
                     start_text.text = tr(
                         "The chart starts on {date}: that day your newest item, {item}, first "
@@ -372,8 +403,31 @@ def register() -> None:
                 ui.notify(tr("All inventory items pinned") if pinned else tr("All items unpinned"))
                 await refresh()
 
+            async def toggle_chart(event: Any) -> None:
+                row = event.args
+                async with runtime.sessions() as session:
+                    await repo.set_chart_excluded(session, row["id"], not row["chart_excluded"])
+                    await session.commit()
+                await refresh()
+
+            async def exclude_newest() -> None:
+                if portfolio is None or portfolio.newest_holding_id is None:
+                    return
+                async with runtime.sessions() as session:
+                    await repo.set_chart_excluded(session, portfolio.newest_holding_id, True)
+                    await session.commit()
+                ui.notify(tr("{item} is left out of the chart", item=portfolio.newest_item))
+                await refresh()
+
+            async def include_all() -> None:
+                async with runtime.sessions() as session:
+                    await repo.include_all_in_chart(session)
+                    await session.commit()
+                await refresh()
+
             table.on("edit", edit)
             table.on("pin", toggle_pin)
+            table.on("chart", toggle_chart)
             period_toggle.on_value_change(redraw)
             # Show the page at once with placeholders; the data follows a moment later.
             ui.timer(0.05, refresh, once=True)

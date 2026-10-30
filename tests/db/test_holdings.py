@@ -273,3 +273,15 @@ async def test_an_item_never_sold_counts_as_priced_once_its_listing_is_known(
     await repo.save_listing(session, item.id, overview, datetime.now(UTC))
 
     assert await repo.price_progress(session) == repo.PriceProgress(priced=1, total=1)
+
+
+async def test_chart_exclusion(session: AsyncSession) -> None:
+    holding = await repo.add_manual_holding(session, "Recoil Case", quantity=1, appid=730)
+
+    await repo.set_chart_excluded(session, holding.id, True)
+    ((excluded, _),) = await repo.active_holdings(session)
+    assert excluded.chart_excluded
+
+    await repo.include_all_in_chart(session)
+    ((included, _),) = await repo.active_holdings(session)
+    assert not included.chart_excluded

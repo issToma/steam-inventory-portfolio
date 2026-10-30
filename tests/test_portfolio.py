@@ -158,3 +158,28 @@ def test_without_listings_the_price_is_the_median_of_recent_sales() -> None:
     (position_,) = value_positions([no_listing]).positions
 
     assert (position_.price, position_.price_source) == (0.03, "sales")
+
+
+def test_an_excluded_position_leaves_the_chart_but_not_the_value() -> None:
+    older = position(1, [10, 10, 10, 10], quantity=1)
+    newer = PositionInput(
+        holding_id=2,
+        item_id=2,
+        name="item 2",
+        source="manual",
+        location=None,
+        appid=730,
+        quantity=1,
+        buy_price_usd=None,
+        history=to_frame([StoredPoint(DAY + timedelta(days=3), "day", Decimal("5"), 20, 1)], {}),
+        listing=Listing(Decimal("5"), None, None, datetime.now(UTC)),
+        chart_excluded=True,
+    )
+
+    portfolio = value_positions([older, newer])
+
+    # The chart starts with the older item alone; the value counts both.
+    assert len(portfolio.value_history) == 4
+    assert portfolio.newest_item == "item 1"
+    assert portfolio.chart_excluded == 1
+    assert portfolio.value == 15

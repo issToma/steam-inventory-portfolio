@@ -200,6 +200,9 @@ class Holding(Base):
     # A pinned inventory position survives syncs: it never shrinks or disappears because the
     # items left the inventory (for example, into a storage unit).
     pinned: Mapped[bool] = mapped_column(Boolean, server_default=false())
+    # Left out of the portfolio's value chart and period stats (the value still counts), say
+    # a brand-new item that would otherwise make the chart start late.
+    chart_excluded: Mapped[bool] = mapped_column(Boolean, server_default=false())
 
 
 class AppSetting(Base):

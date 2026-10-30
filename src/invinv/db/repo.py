@@ -855,7 +855,8 @@ async def portfolio_fingerprint(session: AsyncSession) -> tuple[object, ...]:
                 (SELECT max(listing_checked_at) FROM items),
                 (SELECT md5(coalesce(string_agg(
                     concat_ws(
-                        ':', id, owner, quantity, buy_price_usd, removed_at, location, pinned
+                        ':', id, owner, quantity, buy_price_usd, removed_at, location, pinned,
+                        chart_excluded
                     ),
                     ',' ORDER BY id), ''))
                  FROM holdings),
@@ -921,6 +922,20 @@ async def set_pinned(session: AsyncSession, holding_id: int, pinned: bool) -> No
         update(Holding)
         .where(Holding.id == holding_id, Holding.source == SOURCE_INVENTORY)
         .values(pinned=pinned)
+    )
+
+
+async def set_chart_excluded(session: AsyncSession, holding_id: int, excluded: bool) -> None:
+    await session.execute(
+        update(Holding).where(Holding.id == holding_id).values(chart_excluded=excluded)
+    )
+
+
+async def include_all_in_chart(session: AsyncSession) -> None:
+    await session.execute(
+        update(Holding)
+        .where(Holding.chart_excluded, _active_holding())
+        .values(chart_excluded=False)
     )
 
 
