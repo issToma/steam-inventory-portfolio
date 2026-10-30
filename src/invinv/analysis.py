@@ -191,6 +191,34 @@ CHANGE_WINDOWS: dict[str, timedelta] = {
 }
 
 
+def compare_line(views: PriceViews, period: timedelta | None, now: datetime) -> pd.Series:
+    """The robust price over the period as a percentage of where it stood at its start.
+
+    Starts at 100 at the start of the period (or of the history, if shorter) and runs to
+    `now`, so items that did not sell lately still span the whole period.
+    """
+    # Hourly points are noisy beyond a week: longer periods read better daily.
+    short = period is not None and period <= timedelta(days=7)
+    robust = views.robust if short else views.robust_daily
+    if robust.empty:
+        return robust
+    index = pd.DatetimeIndex(robust.index)
+    start = index[0] if period is None else max(index[0], pd.Timestamp(now - period))
+    position = max(int(index.searchsorted(start, side="right")) - 1, 0)
+    base = float(robust.iloc[position])
+    if not base:
+        return robust.iloc[0:0]
+    line = pd.concat(
+        [
+            pd.Series([base], index=pd.DatetimeIndex([start])),
+            robust[index > start],
+        ]
+    )
+    line.loc[pd.Timestamp(now)] = float(line.iloc[-1])
+    percent: pd.Series = line / base * 100
+    return percent
+
+
 def change_since(
     robust: pd.Series, price: float, period: timedelta | None, now: datetime
 ) -> float | None:

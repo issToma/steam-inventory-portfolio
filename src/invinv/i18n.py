@@ -436,4 +436,13 @@ RU: dict[str, str] = {
     "cheapest listing · {ago}": "самый дешёвый лот · {ago}",
     "median of recent sales": "медиана последних продаж",
     "nothing listed · median of recent sales": "лотов нет · медиана последних продаж",
+    # Market
+    "How the prices of your items compare and move.": "Как меняются и соотносятся цены ваших предметов.",
+    "Compare": "Сравнение",
+    "Each line is the item's price as a percentage of where it stood at the start of the period (the median of its recent sales, so single odd trades do not count).": (
+        "Каждая линия — цена предмета в процентах от её уровня на начало периода (медиана "
+        "последних продаж, поэтому единичные странные сделки не учитываются)."
+    ),
+    "Items from your portfolio and watchlist (up to {n})": "Предметы из портфеля и watchlist (до {n})",
+    "Up to {n} items at once.": "Не больше {n} предметов сразу.",
 }

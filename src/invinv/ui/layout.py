@@ -79,7 +79,7 @@ NAV: list[NavItem] = [
     NavItem("portfolio", "Portfolio", "account_balance_wallet", "/"),
     NavItem("watchlist", "Watchlist", "visibility", "/watchlist"),
     NavItem("alerts", "Alerts", "notifications", "/alerts"),
-    NavItem("market", "Market", "query_stats", None),
+    NavItem("market", "Market", "query_stats", "/market"),
 ]
 NAV_BOTTOM: list[NavItem] = [NavItem("settings", "Settings", "settings", "/settings")]
 

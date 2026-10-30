@@ -1,11 +1,13 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import pandas as pd
 import pytest
 
 from invinv.analysis import (
     MissingRateError,
     change_since,
+    compare_line,
     compute_metrics,
     daily_series,
     price_views,
@@ -148,3 +150,17 @@ def test_change_since_compares_the_price_with_the_robust_price_then() -> None:
 
     assert change_since(robust, 15.0, timedelta(days=7), now) == pytest.approx(0.5)
     assert change_since(robust, 15.0, None, now) == pytest.approx(0.5)
+
+
+def test_compare_line_starts_at_100_and_reaches_now() -> None:
+    frame = to_frame(
+        [point(START + timedelta(days=i), str(10 + i), volume=20) for i in range(10)], {}
+    )
+    now = START + timedelta(days=12)
+
+    line = compare_line(price_views(frame), timedelta(days=5), now)
+
+    assert line.iloc[0] == 100
+    # Day 7 (start of the period) was 17; the last sale, day 9, was 19.
+    assert line.iloc[-1] == pytest.approx(19 / 17 * 100)
+    assert line.index[-1] == pd.Timestamp(now)
