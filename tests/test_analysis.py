@@ -164,3 +164,18 @@ def test_compare_line_starts_at_100_and_reaches_now() -> None:
     # Day 7 (start of the period) was 17; the last sale, day 9, was 19.
     assert line.iloc[-1] == pytest.approx(19 / 17 * 100)
     assert line.index[-1] == pd.Timestamp(now)
+
+
+def test_hourly_points_are_smoothed_on_their_own_scale() -> None:
+    # Years of busy days, then an hour-by-hour month with a few sales per hour and one odd
+    # trade: the hourly window must still be wide enough to ignore it.
+    points = [point(START - timedelta(days=d), "30", volume=80) for d in range(60, 0, -1)]
+    hours = ["31", "32", "31", "40", "31", "32", "31", "32", "31"]
+    points += [
+        point(START + timedelta(hours=h), price, volume=3, resolution="hour")
+        for h, price in enumerate(hours)
+    ]
+
+    robust = price_views(to_frame(points, {})).robust
+
+    assert robust[START + timedelta(hours=3)] < 33

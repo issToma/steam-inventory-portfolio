@@ -154,13 +154,18 @@ def price_views(frame: pd.DataFrame) -> PriceViews:
     hourly = hourly_series(frame)
     daily = daily_series(frame, hourly)
     combined = daily
+    robust = robust_prices(daily)
     if not hourly.empty:
-        combined = pd.concat([daily[daily.index < hourly.index[0]], hourly])
+        before = daily[daily.index < hourly.index[0]]
+        combined = pd.concat([before, hourly])
+        # Each part gets its own window: a daily point holds far more sales than an hourly
+        # one, and one window for both left the hourly points without any smoothing.
+        robust = pd.concat([robust_prices(before), robust_prices(hourly)])
     return PriceViews(
         daily=daily,
         hourly=hourly,
         prices=combined["price"],
-        robust=robust_prices(combined),
+        robust=robust,
         robust_daily=robust_prices(daily),
     )
 
