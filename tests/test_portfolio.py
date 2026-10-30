@@ -94,7 +94,7 @@ def test_position_change_per_period() -> None:
     assert pos.change("All") == pytest.approx(3.0)
 
 
-def test_value_history_starts_when_every_item_is_on_the_market() -> None:
+def test_each_item_counts_from_its_first_sale() -> None:
     older = position(1, [10, 10, 10, 10], quantity=1)
     newer = PositionInput(
         holding_id=2,
@@ -114,11 +114,15 @@ def test_value_history_starts_when_every_item_is_on_the_market() -> None:
         ),
     )
 
-    history = value_positions([older, newer]).value_history
+    portfolio = value_positions([older, newer])
 
-    assert list(history) == [15, 16]
-    assert history.index[0] == pd.Timestamp(DAY + timedelta(days=2))
-    assert value_positions([older, newer]).newest_item == "item 2"
+    # The newer item counts from its first sale on day 2: the value steps up then.
+    assert list(portfolio.value_history) == [10, 10, 15, 16]
+    assert portfolio.value_history.index[0] == pd.Timestamp(DAY)
+    assert sorted(portfolio.item_starts) == [
+        pd.Timestamp(DAY),
+        pd.Timestamp(DAY + timedelta(days=2)),
+    ]
 
 
 def test_price_is_the_cheapest_listing_not_an_odd_last_sale() -> None:

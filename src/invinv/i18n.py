@@ -63,6 +63,17 @@ RU_PLURAL: dict[tuple[str, str], tuple[str, str, str]] = {
     ("{n} minute", "{n} minutes"): ("{n} минуту", "{n} минуты", "{n} минут"),
     ("{n} item", "{n} items"): ("{n} предмет", "{n} предмета", "{n} предметов"),
     ("{n} sale", "{n} sales"): ("{n} продажа", "{n} продажи", "{n} продаж"),
+    (
+        "{n} of your items first sold within this period. An item counts from its first sale, so the chart steps up on that day.",
+        "{n} of your items first sold within this period. Each counts from its first sale, so the chart steps up on those days.",
+    ): (
+        "{n} ваш предмет впервые продан в этом периоде. Предмет учитывается с первой продажи, "
+        "поэтому в этот день график скачком растёт.",
+        "{n} ваших предмета впервые проданы в этом периоде. Каждый учитывается с первой "
+        "продажи, поэтому в эти дни график скачком растёт.",
+        "{n} ваших предметов впервые проданы в этом периоде. Каждый учитывается с первой "
+        "продажи, поэтому в эти дни график скачком растёт.",
+    ),
     ("Updating · {n} task queued", "Updating · {n} tasks queued"): (
         "Обновляем · в очереди {n} задача",
         "Обновляем · в очереди {n} задачи",
@@ -219,7 +230,6 @@ RU: dict[str, str] = {
     "Now": "Сейчас",
     "For the period · {period}": "За период · {period}",
     "For all time": "За всё время",
-    "since {date}, when the last of your items came to the market": "с {date}, когда на рынке появился последний из ваших предметов",
     "from {value}": "с {value}",
     "Change": "Изменение",
     "Highest": "Максимум",
@@ -483,8 +493,4 @@ RU: dict[str, str] = {
         "котором не меньше {n} ваших предметов, от 100% на начало периода."
     ),
     "Not enough items in any segment yet.": "Пока ни в одном сегменте не хватает предметов.",
-    "The chart starts on {date}: that day your newest item, {item}, first sold. Before it, the portfolio as it is today did not exist.": (
-        "График начинается {date}: в этот день впервые продали ваш самый новый предмет, {item}. "
-        "Раньше портфеля в нынешнем составе не существовало."
-    ),
 }
