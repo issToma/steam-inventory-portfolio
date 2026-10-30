@@ -370,7 +370,9 @@ RU: dict[str, str] = {
         "Отправьте любое сообщение своему новому боту и нажмите «Найти мой чат»."
     ),
     "Alerts for {name}": "Алерты: {name}",
-    "Alerts show up here and under the bell.": "Алерты появляются здесь и под колокольчиком.",
+    "Alerts show up here, their unread count beside Alerts in the menu.": (
+        "Алерты появляются здесь, а число непрочитанных — рядом с «Алертами» в меню."
+    ),
     "Alerts will go to {chat}": "Алерты будут приходить в {chat}",
     "Bot token": "Токен бота",
     "Chat: {chat}": "Чат: {chat}",

@@ -265,7 +265,6 @@ def page_frame(active: str, *, animate: bool = True) -> Iterator[None]:
         _global_search()
         ui.space()
         _collector_indicator()
-        _alerts_bell()
         _language_menu()
         _theme_menu(theme)
         _account_chip()
@@ -300,6 +299,8 @@ def _nav(items: list[NavItem], active: str) -> None:
             ):
                 ui.icon(item.icon)
                 ui.label(tr(item.label))
+                if item.key == "alerts":
+                    _unread_badge()
             app.storage.client.setdefault("nav_rows", {})[item.key] = row
 
 
@@ -448,12 +449,10 @@ def _collector_indicator() -> None:
     ui.timer(0.1, update, once=True)
 
 
-def _alerts_bell() -> None:
-    with ui.button(icon="notifications", on_click=lambda: ui.navigate.to("/alerts")).props(
-        "flat round dense color=grey"
-    ):
-        badge = ui.badge(color="red").props("floating rounded")
-        ui.tooltip(tr("Alerts"))
+def _unread_badge() -> None:
+    """The number of unread alerts on the Alerts entry of the navigation."""
+    badge = ui.badge(color="red").props("rounded").classes("ml-auto")
+    badge.set_visibility(False)
 
     async def update() -> None:
         async with runtime.sessions() as session:
@@ -461,7 +460,6 @@ def _alerts_bell() -> None:
         badge.text = str(unread) if unread < 100 else "99+"
         badge.set_visibility(unread > 0)
 
-    badge.set_visibility(False)
     ui.timer(30, update)
     ui.timer(0.1, update, once=True)
 

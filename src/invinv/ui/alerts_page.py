@@ -167,7 +167,7 @@ async def _telegram_hint() -> None:
     if telegram is None:
         with ui.row().classes("items-center gap-2 text-caption text-muted"):
             ui.icon("info", size="xs")
-            ui.label(tr("Alerts show up here and under the bell."))
+            ui.label(tr("Alerts show up here, their unread count beside Alerts in the menu."))
             ui.link(tr("Set up Telegram to get them on your phone."), "/settings#telegram")
 
 
