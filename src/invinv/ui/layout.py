@@ -135,6 +135,20 @@ a.plain-link:hover { text-decoration: underline; }
 /* Drop-down menus on the theme's surface rather than Quasar's own grey. */
 .q-menu { background: var(--surface) !important; color: var(--text);
           border: 1px solid var(--border); }
+/* Clickable icons in table rows: light, with a round hover like a button. */
+.row-action { cursor: pointer; border-radius: 999px; padding: 4px; box-sizing: content-box; }
+.row-action:hover { background: var(--hover); }
+/* Top gainers and losers (plain HTML, see ui.portfolio._movers). */
+.movers { display: flex; flex-wrap: wrap; gap: 12px; }
+.movers-card { flex: 1 1 18rem; padding: 16px; display: flex; flex-direction: column; gap: 6px;
+               border-radius: 4px; }
+.mover { display: flex; align-items: center; gap: 8px; }
+.mover-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+              white-space: nowrap; }
+.mover span { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.movers-more summary { cursor: pointer; color: var(--muted); padding: 4px 0; }
+.movers-more[open] summary { margin-bottom: 6px; }
+.movers-more .mover + .mover, .movers-more summary + .mover { margin-top: 6px; }
 .unread-dot { min-width: 9px; min-height: 9px; padding: 0; top: 4px; right: 4px; }
 .unread-alert { border-left: 3px solid var(--q-primary); }
 """

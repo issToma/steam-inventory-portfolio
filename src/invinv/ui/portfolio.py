@@ -1,3 +1,5 @@
+import json
+from html import escape
 from typing import Any
 
 import pandas as pd
@@ -11,7 +13,7 @@ from invinv.portfolio import (
     PeriodStats,
     Portfolio,
     Position,
-    load_portfolio,
+    load_portfolios,
     period_stats,
 )
 from invinv.runtime import runtime
@@ -66,6 +68,8 @@ def _all_columns() -> list[dict[str, Any]]:
         _number("price", tr("Price"), _USD),
         _number("value", tr("Value"), _USD),
         _number("share", tr("Share"), _PERCENT),
+        # The share within the game shown: swapped in for "share" when one game is chosen.
+        _number("share_game", tr("Share"), _PERCENT),
         _number("change_24h", "24h", _SIGNED_PERCENT, colored=True),
         _number("change_7d", "7d", _SIGNED_PERCENT, colored=True),
         {"name": "trend", "label": "", "field": "spark", "align": "center"},
@@ -106,8 +110,10 @@ def _number(name: str, label: str, formatter: str, *, colored: bool = False) -> 
     return column
 
 
-def _row(p: Position) -> dict[str, Any]:
+def _row(p: Position, share_in_game: float | None = None) -> dict[str, Any]:
     return {
+        "appid": p.appid,
+        "share_game": share_in_game,
         "id": p.holding_id,
         "item_id": p.item_id,
         "name": p.name,
@@ -180,7 +186,7 @@ async def content() -> None:
             ui.button(tr("Add item"), icon="add", on_click=lambda: open_add_dialog())
 
         banner = ui.column().classes("w-full")
-        games = GameSwitch(on_change=lambda: refresh())
+        games = GameSwitch(on_change=lambda: switch_game())
 
         # --- Value now, its change over the chosen period, and the chart ------------
         with ui.card().classes("w-full gap-4"):
@@ -230,7 +236,8 @@ async def content() -> None:
                     "flat dense no-caps size=sm color=primary"
                 )
             excluded_note.set_visibility(False)
-        movers = ui.row().classes("w-full gap-3")
+        # Escaped piece by piece in _movers(); the sanitizer would strip the colours.
+        movers = ui.html("", sanitize=False).classes("w-full")
 
         # --- Positions ---------------------------------------------------------------
         with ui.row().classes("w-full items-center"):
@@ -256,13 +263,20 @@ async def content() -> None:
             )
             .classes("w-full")
             .props(":rows-per-page-options=[25,50,100,0] loading")
+            # The rows of every game are sent once; choosing a game filters them here.
+            .props(
+                ':filter-method="(rows, terms) => terms ? '
+                'rows.filter(r => String(r.appid) === terms) : rows"'
+            )
         )
         table.add_slot("body-cell-name", NAME_CELL_SLOT)
         table.add_slot(
             "body-cell-pin",
             '<q-td :props="props">'
-            '<q-btn v-if="props.row.pinnable" flat dense round size="sm" '
-            ":icon=\"props.row.pinned ? 'lock' : 'lock_open'\" "
+            # Plain icons rather than buttons: a page holds hundreds of them, and buttons
+            # made switching games slow to draw.
+            '<q-icon v-if="props.row.pinnable" size="xs" class="row-action" '
+            ":name=\"props.row.pinned ? 'lock' : 'lock_open'\" "
             ":color=\"props.row.pinned ? 'amber' : 'grey'\" "
             "@click.stop=\"$parent.$emit('pin', props.row)\" />"
             "</q-td>",
@@ -270,35 +284,56 @@ async def content() -> None:
         table.add_slot(
             "body-cell-chart",
             '<q-td :props="props">'
-            '<q-btn flat dense round size="sm" '
-            ":icon=\"props.row.chart_excluded ? 'hide_source' : 'show_chart'\" "
+            '<q-icon size="xs" class="row-action" :title="props.row.chart_tip" '
+            ":name=\"props.row.chart_excluded ? 'hide_source' : 'show_chart'\" "
             ":color=\"props.row.chart_excluded ? 'orange' : 'grey'\" "
-            "@click.stop=\"$parent.$emit('chart', props.row)\">"
-            "<q-tooltip>{{ props.row.chart_tip }}</q-tooltip></q-btn>"
+            "@click.stop=\"$parent.$emit('chart', props.row)\" />"
             "</q-td>",
         )
         table.add_slot("body-cell-trend", SPARK_CELL_SLOT)
         table.add_slot(
             "body-cell-actions",
             '<q-td :props="props">'
-            '<q-btn flat dense round icon="edit" '
+            '<q-icon name="edit" size="xs" class="row-action" '
             "@click.stop=\"$parent.$emit('edit', props.row)\" />"
             "</q-td>",
         )
         table.on("rowClick", lambda e: ui.navigate.to(f"/item/{e.args[1]['item_id']}"))
 
         portfolio: Portfolio | None = None
+        portfolios: dict[int | None, Portfolio] = {}
         shown_value = 0.0  # what the headline showed last, to count from
 
         async def refresh() -> None:
-            nonlocal portfolio, shown_value
-            everything = await load_portfolio(runtime.sessions)
+            """Load every game's portfolio (cached until something changes) and show it."""
+            nonlocal portfolios
+            portfolios = await load_portfolios(runtime.sessions)
+            everything = portfolios[None]
             games.set_games((p.appid for p in everything.positions), await game_names())
-            portfolio = (
-                everything
-                if games.appid is None
-                else await load_portfolio(runtime.sessions, games.appid)
-            )
+            shares = {
+                p.holding_id: p.share
+                for appid, game in portfolios.items()
+                if appid is not None
+                for p in game.positions
+            }
+            table.columns = columns(with_pnl=any(p.pnl is not None for p in everything.positions))
+            table.rows = [_row(p, shares.get(p.holding_id)) for p in everything.positions]
+            table.props(remove="loading")
+            _filter_table(table, games.appid, browser=False)
+            table.update()
+            show_game()
+            await _banner(banner)
+
+        async def switch_game() -> None:
+            """Only what depends on the game changes; the table filters its rows itself."""
+            if not portfolios:
+                return
+            _filter_table(table, games.appid, browser=True)
+            show_game()
+
+        def show_game() -> None:
+            nonlocal portfolio, shown_value
+            portfolio = portfolios.get(games.appid) or portfolios[None]
             hero_value.text = fmt_usd(portfolio.value)
             hero_value.set_visibility(True)
             hero_skeleton.set_visibility(False)
@@ -323,14 +358,9 @@ async def content() -> None:
                 kpi(tr("Positions"), f"{len(portfolio.positions):,}")
                 if portfolio.unpriced:
                     kpi(tr("Waiting for prices"), f"{portfolio.unpriced:,}")
-            table.columns = columns(with_pnl=any(p.pnl is not None for p in portfolio.positions))
-            table.rows = [_row(p) for p in portfolio.positions]
-            table.props(remove="loading")
-            table.update()
             chart_skeleton.set_visibility(False)
             chart.set_visibility(True)
             redraw()
-            await _banner(banner)
 
         def redraw() -> None:
             if portfolio is None:
@@ -485,6 +515,27 @@ async def content() -> None:
         ui.timer(60, refresh)
 
 
+def _filter_table(table: ui.table, appid: int | None, *, browser: bool) -> None:
+    """Show one game's rows (or all) with the share column that fits. With `browser`, the
+    change is made in the page directly, without sending the rows again."""
+    value = "" if appid is None else str(appid)
+    hidden = "share" if appid is not None else "share_game"
+    visible = [c["name"] for c in table.columns if c["name"] != hidden]
+    # Kept in step on the server, so that the next full update keeps the choice; without
+    # sending the table (and its hundreds of rows) to the browser now.
+    with table._props.suspend_updates():
+        table._props["filter"] = value
+        table._props["visible-columns"] = visible
+    if browser:
+        ui.run_javascript(
+            f"(() => {{ const el = getElement({table.id}); if (!el) return;"
+            f" const props = el.$root.elements[{table.id}].props;"
+            f" props.filter = {json.dumps(value)};"
+            f" props['visible-columns'] = {json.dumps(visible)};"
+            f" el.$refs.qRef && el.$refs.qRef.firstPage(); }})()"
+        )
+
+
 def _delta_pill(pill: ui.label, stats: PeriodStats | None) -> None:
     """The period's change beside the portfolio's value: a tinted pill with an arrow."""
     if stats is None:
@@ -510,13 +561,13 @@ def _period_stats(container: ui.row, stats: PeriodStats | None) -> None:
         kpi(tr("Lowest"), fmt_usd(stats.low), tooltip=f"{stats.low_on:%Y-%m-%d}")
 
 
-def _movers(container: ui.row, portfolio: Portfolio, period: str) -> None:
+def _movers(container: ui.html, portfolio: Portfolio, period: str) -> None:
     """Positions that gained or lost the most money over the selected period.
 
     Ranked by dollars rather than percent: a cent item going from $0.01 to $0.03 is +200%
-    but hardly moves the portfolio.
+    but hardly moves the portfolio. Built as plain HTML: one element to update when the
+    game or the period changes, rather than dozens.
     """
-    container.clear()
     changed = []
     for p in portfolio.positions:
         change = p.change(period)
@@ -525,26 +576,27 @@ def _movers(container: ui.row, portfolio: Portfolio, period: str) -> None:
     gainers = sorted((x for x in changed if x[2] > 0), key=lambda x: -x[2])
     losers = sorted((x for x in changed if x[2] < 0), key=lambda x: x[2])
     label = tr("all time") if period == "All" else period
-    with container:
-        for title, entries in (
-            (tr("Top gainers, {period}", period=label), gainers),
-            (tr("Top losers, {period}", period=label), losers),
-        ):
-            with ui.card().classes("grow min-w-72"):
-                ui.label(title).classes("text-caption text-primary")
-                if not entries:
-                    ui.label("—").classes("text-muted")
-                for p, change, dollars in entries[:MOVERS_SHOWN]:
-                    _mover(p, change, dollars)
-                more = entries[MOVERS_SHOWN:MOVERS_MAX]
-                if more:
-                    with (
-                        ui.expansion(tr("{n} more", n=len(more)))
-                        .classes("w-full")
-                        .props("dense header-class=text-muted")
-                    ):
-                        for p, change, dollars in more:
-                            _mover(p, change, dollars)
+    cards = []
+    for title, entries in (
+        (tr("Top gainers, {period}", period=label), gainers),
+        (tr("Top losers, {period}", period=label), losers),
+    ):
+        rows = "".join(_mover(*entry) for entry in entries[:MOVERS_SHOWN]) or (
+            '<div class="text-muted">—</div>'
+        )
+        more = entries[MOVERS_SHOWN:MOVERS_MAX]
+        if more:
+            rows += (
+                f'<details class="movers-more"><summary>'
+                f"{escape(tr('{n} more', n=len(more)))}</summary>"
+                + "".join(_mover(*entry) for entry in more)
+                + "</details>"
+            )
+        cards.append(
+            f'<div class="q-card movers-card"><div class="text-caption text-primary">'
+            f"{escape(title)}</div>{rows}</div>"
+        )
+    container.content = f'<div class="movers">{"".join(cards)}</div>'
 
 
 # Top movers shown at once, and in all with the rest unfolded.
@@ -552,16 +604,15 @@ MOVERS_SHOWN = 3
 MOVERS_MAX = 10
 
 
-def _mover(p: Position, change: float, dollars: float) -> None:
-    with ui.row().classes("w-full no-wrap items-center gap-2"):
-        color = rarity_color(p.rarity, p.quality, p.name_color, p.appid)
-        ui.link(p.name, f"/item/{p.item_id}").classes("plain-link grow truncate").style(
-            f"color: {color}" if color else ""
-        )
-        sign = "+" if dollars > 0 else "-"
-        ui.label(f"{sign}{fmt_usd(abs(dollars))} ({fmt_pct(change)})").classes(
-            f"{pct_color(change)} whitespace-nowrap"
-        )
+def _mover(p: Position, change: float, dollars: float) -> str:
+    color = rarity_color(p.rarity, p.quality, p.name_color, p.appid)
+    style = f' style="color: {escape(color)}"' if color else ""
+    sign = "+" if dollars > 0 else "-"
+    figure = f"{sign}{fmt_usd(abs(dollars))} ({fmt_pct(change)})"
+    return (
+        f'<div class="mover"><a class="plain-link mover-name" href="/item/{p.item_id}"{style}>'
+        f'{escape(p.name)}</a><span class="{pct_color(change)}">{escape(figure)}</span></div>'
+    )
 
 
 async def _banner(container: ui.column) -> None:
