@@ -501,4 +501,5 @@ RU: dict[str, str] = {
     "Leave it out of the chart": "Исключить из графика",
     "Count them all again": "Вернуть все",
     "{item} is left out of the chart": "{item} исключён из графика",
+    "last price check {ago}": "последняя сверка цен {ago}",
 }

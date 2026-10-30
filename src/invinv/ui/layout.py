@@ -15,7 +15,7 @@ from invinv.db import repo
 from invinv.i18n import LANGUAGES, Language, current_language, set_language, tr, tr_n
 from invinv.runtime import runtime
 from invinv.search import SearchQuery, search_local
-from invinv.ui.common import span
+from invinv.ui.common import span, time_ago
 
 type Theme = Literal["dark", "dim", "light"]
 
@@ -165,7 +165,7 @@ def page_frame(active: str) -> Iterator[None]:
         ui.space()
         _nav(NAV_BOTTOM, active)
 
-    with ui.header().classes("app-header items-center gap-2 py-1"):
+    with ui.header().classes("app-header items-center gap-2 px-3 py-2"):
         ui.button(icon="menu", on_click=drawer.toggle).props("flat round dense color=grey")
         _global_search()
         ui.space()
@@ -205,8 +205,8 @@ def _global_search() -> None:
     """Type to search every item seen so far; pick one to open its page."""
     box = (
         ui.input(placeholder=tr("Search items…"))
-        .props("dense outlined clearable")
-        .classes("w-full max-w-md ml-2")
+        .props("dense outlined rounded clearable")
+        .classes("w-full max-w-md ml-3")
     )
     with box.add_slot("prepend"):
         ui.icon("search")
@@ -301,7 +301,14 @@ def _collector_indicator() -> None:
             if status.enabled
             else ""
         )
-        hint.text = " · ".join(part for part in (text or tr("Prices are up to date"), pace) if part)
+        checked = (
+            tr("last price check {ago}", ago=time_ago(status.last_price_check))
+            if status.last_price_check
+            else ""
+        )
+        hint.text = " · ".join(
+            part for part in (text or tr("Prices are up to date"), checked, pace) if part
+        )
 
     ui.timer(15, update)
     ui.timer(0.1, update, once=True)

@@ -5,6 +5,7 @@ import contextlib
 import logging
 import time
 from dataclasses import dataclass
+from datetime import datetime
 
 import aiohttp
 
@@ -31,6 +32,7 @@ class CollectorStatus:
     eta_seconds: float
     pace_seconds: float  # between requests right now
     adaptive: bool
+    last_price_check: datetime | None
 
     @property
     def loading_prices(self) -> bool:
@@ -107,6 +109,7 @@ class Runtime:
         async with self.sessions() as session:
             queued = await repo.due_job_count(session)
             prices = await repo.price_progress(session)
+            last_check = await repo.last_price_check(session)
         until = self._client.cooling_down_until if self._client else None
         paused = until - time.monotonic() if until is not None else None
         pace = self._client.pace if self._client else self._interval
@@ -118,6 +121,7 @@ class Runtime:
             eta_seconds=queued * pace,
             pace_seconds=pace,
             adaptive=self._client.adaptive if self._client else False,
+            last_price_check=last_check,
         )
 
     async def resume_steam(self) -> None:

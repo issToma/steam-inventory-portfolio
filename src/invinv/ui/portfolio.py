@@ -55,18 +55,48 @@ def _all_columns() -> list[dict[str, Any]]:
             "align": "left",
             "sortable": True,
         },
-        {"name": "quantity", "label": tr("Qty"), "field": "quantity", "align": "right"},
-        {"name": "price", "label": tr("Price"), "field": "price", "align": "right"},
-        {"name": "value", "label": tr("Value"), "field": "value", "align": "right"},
-        {"name": "share", "label": tr("Share"), "field": "share", "align": "right"},
-        {"name": "change_24h", "label": "24h", "field": "change_24h", "align": "right"},
-        {"name": "change_7d", "label": "7d", "field": "change_7d", "align": "right"},
+        _number("quantity", tr("Qty"), _COUNT),
+        _number("price", tr("Price"), _USD),
+        _number("value", tr("Value"), _USD),
+        _number("share", tr("Share"), _PERCENT),
+        _number("change_24h", "24h", _SIGNED_PERCENT, colored=True),
+        _number("change_7d", "7d", _SIGNED_PERCENT, colored=True),
         {"name": "trend", "label": "", "field": "spark", "align": "center"},
-        {"name": "pnl", "label": tr("P&L"), "field": "pnl", "align": "right"},
+        _number("pnl", tr("P&L"), _SIGNED_USD, colored=True),
         {"name": "pin", "label": "", "field": "pinned", "align": "center"},
         {"name": "chart", "label": "", "field": "chart_excluded", "align": "center"},
         {"name": "actions", "label": "", "field": "id", "align": "right"},
     ]
+
+
+# Cells hold numbers, so that columns sort by value; these JavaScript formatters show them.
+_COUNT = "v => v == null ? '—' : v.toLocaleString('en-US')"
+_USD = (
+    "v => v == null ? '—' : '$' + v.toLocaleString('en-US', "
+    "{minimumFractionDigits: 2, maximumFractionDigits: 2})"
+)
+_SIGNED_USD = (
+    "v => v == null ? '—' : (v < 0 ? '-$' : '+$') + Math.abs(v).toLocaleString('en-US', "
+    "{minimumFractionDigits: 2, maximumFractionDigits: 2})"
+)
+_PERCENT = "v => v == null ? '—' : (v * 100).toFixed(1) + '%'"
+_SIGNED_PERCENT = "v => v == null ? '—' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%'"
+
+
+def _number(name: str, label: str, formatter: str, *, colored: bool = False) -> dict[str, Any]:
+    column = {
+        "name": name,
+        "label": label,
+        "field": name,
+        "align": "right",
+        "sortable": True,
+        ":format": formatter,
+    }
+    if colored:
+        column[":classes"] = (
+            f"row => row.{name} > 0 ? 'text-positive' : row.{name} < 0 ? 'text-negative' : ''"
+        )
+    return column
 
 
 def _row(p: Position) -> dict[str, Any]:
@@ -82,12 +112,12 @@ def _row(p: Position) -> dict[str, Any]:
         if p.source == repo.SOURCE_INVENTORY
         else (p.location or tr("Manual")),
         "quantity": p.quantity,
-        "price": fmt_usd(p.price),
-        "value": fmt_usd(p.value),
-        "share": "—" if p.share is None else f"{p.share:.1%}",
-        "change_24h": fmt_pct(p.change_24h),
-        "change_7d": fmt_pct(p.change_7d),
-        "pnl": "—" if p.pnl is None else f"{'+' if p.pnl >= 0 else '-'}${abs(p.pnl):,.2f}",
+        "price": p.price,
+        "value": p.value,
+        "share": p.share,
+        "change_24h": p.change_24h,
+        "change_7d": p.change_7d,
+        "pnl": p.pnl,
         "source": p.source,
         "pinnable": p.source == repo.SOURCE_INVENTORY,
         "pinned": p.pinned,
@@ -169,9 +199,15 @@ def register() -> None:
                     with ui.column().classes("gap-1 self-stretch") as period_group:
                         _fit_cards(period_group, 3)
                         with ui.row().classes("items-baseline gap-2"):
-                            period_caption = ui.label().classes("text-overline text-primary")
+                            period_caption = ui.label(
+                                tr("For the period · {period}", period=period_toggle.value)
+                            ).classes("text-overline text-primary")
                             period_since = ui.label().classes("text-caption text-muted")
                         stats = ui.row().classes("w-full gap-3 items-stretch no-wrap grow")
+                        with stats:
+                            # Change, highest and lowest, until the portfolio is valued.
+                            for _ in range(3):
+                                ui.skeleton(height="6.75rem").classes("flex-1")
                 chart_skeleton = ui.skeleton(height="18rem").classes("w-full")
                 chart = ui.echart({}).classes("w-full h-72")
                 chart.set_visibility(False)

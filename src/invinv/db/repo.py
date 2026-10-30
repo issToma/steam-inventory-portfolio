@@ -800,6 +800,11 @@ async def price_progress(session: AsyncSession) -> PriceProgress:
     return PriceProgress(priced=priced, total=total)
 
 
+async def last_price_check(session: AsyncSession) -> datetime | None:
+    """When the collector last checked an item's price on the market."""
+    return await session.scalar(select(func.max(Item.listing_checked_at)))
+
+
 async def retry_rate_limited_jobs(session: AsyncSession) -> None:
     """Run now the jobs that are waiting out a 429 (after the user resumed the client)."""
     await session.execute(
