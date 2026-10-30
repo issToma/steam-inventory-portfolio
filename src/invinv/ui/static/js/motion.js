@@ -4,17 +4,26 @@
   const usd = (n) =>
     "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  // Count a dollar figure up (or down) to its new value.
+  // Count a dollar figure up (or down) to its new value. A new count stops the one running,
+  // which then starts from the figure shown at that moment.
   window.invinvCount = (id, from, to, ms = 800) => {
     const el = document.getElementById(id);
     if (!el || reduced() || from === to) return;
+    if (el._counting != null) from = el._shown ?? from;
+    const token = (el._counting = (el._counting ?? 0) + 1);
     const start = performance.now();
     const step = (now) => {
+      if (el._counting !== token) return;
       const t = Math.min((now - start) / ms, 1);
       const eased = 1 - Math.pow(1 - t, 3);
-      el.textContent = usd(from + (to - from) * eased);
+      el._shown = from + (to - from) * eased;
+      el.textContent = usd(el._shown);
       if (t < 1) requestAnimationFrame(step);
-      else el.textContent = usd(to);
+      else {
+        el.textContent = usd(to);
+        el._shown = to;
+        el._counting = null;
+      }
     };
     requestAnimationFrame(step);
   };

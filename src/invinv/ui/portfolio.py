@@ -329,9 +329,9 @@ async def content() -> None:
             if not portfolios:
                 return
             _filter_table(table, games.appid, browser=True)
-            show_game()
+            show_game(fresh=True)
 
-        def show_game() -> None:
+        def show_game(*, fresh: bool = False) -> None:
             nonlocal portfolio, shown_value
             portfolio = portfolios.get(games.appid) or portfolios[None]
             hero_value.text = fmt_usd(portfolio.value)
@@ -360,15 +360,22 @@ async def content() -> None:
                     kpi(tr("Waiting for prices"), f"{portfolio.unpriced:,}")
             chart_skeleton.set_visibility(False)
             chart.set_visibility(True)
-            redraw()
+            redraw(fresh=fresh)
 
-        def redraw() -> None:
+        def redraw(*, fresh: bool = False) -> None:
+            """Show the chart and the period's figures. `fresh` (another game) draws the line
+            in anew: gliding from one game's line to another's looks like a glitch."""
             if portfolio is None:
                 return
             period = period_toggle.value
             chart.options.clear()
             chart.options.update(themed_chart(_value_chart(portfolio.value_history, period)))
-            chart.update()
+            if fresh:
+                # Clear first, then send the options a moment later, after the clear arrived.
+                chart.run_chart_method("clear")
+                ui.timer(0.05, chart.update, once=True)
+            else:
+                chart.update()
             period_caption.text = (
                 tr("For all time")
                 if period == "All"
