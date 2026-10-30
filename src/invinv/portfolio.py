@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from itertools import batched
 
+import numpy as np
 import pandas as pd
 
 from invinv.analysis import (
@@ -256,19 +257,24 @@ def value_history(
     the portfolio as it is today could not have existed, and comparing with a handful of
     older items would be misleading. `dailies` holds daily price series already built.
     """
-    columns = {}
+    columns: list[tuple[np.ndarray, np.ndarray]] = []
     for p in inputs:
         daily = dailies.get(p.holding_id) if dailies else None
         if daily is None:
             if p.history.empty:
                 continue
             daily = daily_series(p.history)["price"]
-        price = daily.copy()
-        price.index = pd.DatetimeIndex(price.index).normalize()
-        columns[p.holding_id] = price * p.quantity
+        # Plain UTC datetime64: numpy turns timezone-aware dates into slow Python objects.
+        days = pd.DatetimeIndex(daily.index).tz_convert(None).normalize().to_numpy()
+        columns.append((days, daily.to_numpy(dtype=float) * p.quantity))
     if not columns:
         return pd.Series(dtype=float)
-    frame = pd.DataFrame(columns).sort_index()
+    # One matrix (day x position) instead of aligning hundreds of series one by one.
+    all_days = np.unique(np.concatenate([days for days, _ in columns]))
+    matrix = np.full((len(all_days), len(columns)), np.nan)
+    for column, (days, values) in enumerate(columns):
+        matrix[np.searchsorted(all_days, days), column] = values
+    frame = pd.DataFrame(matrix, index=pd.DatetimeIndex(all_days).tz_localize(UTC))
     # Days on which every position already has a price.
     return frame.ffill().dropna().sum(axis=1)
 

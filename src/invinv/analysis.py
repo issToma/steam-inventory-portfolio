@@ -198,12 +198,13 @@ def change_since(
     (None = all history; a history shorter than the period counts from its first point)."""
     if robust.empty:
         return None
-    then = robust.iloc[0]
+    position = 0
     if period is not None:
-        before = robust[: pd.Timestamp(now - period)]
-        if not before.empty:
-            then = before.iloc[-1]
-    return float(price / then - 1) if then else None
+        # The last point at or before the start of the period (a binary search).
+        index = pd.DatetimeIndex(robust.index)
+        position = max(int(index.searchsorted(pd.Timestamp(now - period), side="right")) - 1, 0)
+    then = float(robust.iloc[position])
+    return price / then - 1 if then else None
 
 
 def compute_metrics(

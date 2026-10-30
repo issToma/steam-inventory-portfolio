@@ -15,6 +15,7 @@ from invinv.core.steam import SteamMarket
 from invinv.core.telegram import TelegramBot
 from invinv.db import repo
 from invinv.db.session import SessionMaker, make_engine, make_sessionmaker
+from invinv.portfolio import load_portfolio
 from invinv.settings import get_settings
 
 log = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ class Runtime:
         self._sessions: SessionMaker | None = None
         self._http: aiohttp.ClientSession | None = None
         self._collector: asyncio.Task[None] | None = None
+        self._warm_up: asyncio.Task[None] | None = None
         self._market: SteamMarket | None = None
         self._client: SteamClient | None = None
         self._telegram: TelegramBot | None = None
@@ -86,12 +88,20 @@ class Runtime:
         self._telegram = TelegramBot(self._http)
         self._collector_enabled = settings.collector_enabled
         self._interval = settings.request_interval_seconds
+        # Value the portfolio right away, so the first visit finds it ready.
+        self._warm_up = asyncio.create_task(self._value_portfolio())
         if settings.collector_enabled:
             notifier = Notifier(self._sessions, self._telegram)
             collector = Collector(self._sessions, self._market, settings, notifier=notifier)
             self._collector = asyncio.create_task(collector.run_forever())
         else:
             log.info("collector disabled by settings")
+
+    async def _value_portfolio(self) -> None:
+        try:
+            await load_portfolio(self.sessions)
+        except Exception:
+            log.exception("could not value the portfolio at startup")
 
     async def collector_status(self) -> CollectorStatus:
         async with self.sessions() as session:
@@ -119,6 +129,10 @@ class Runtime:
             await session.commit()
 
     async def stop(self) -> None:
+        if self._warm_up is not None:
+            self._warm_up.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._warm_up
         if self._collector is not None:
             self._collector.cancel()
             with contextlib.suppress(asyncio.CancelledError):
