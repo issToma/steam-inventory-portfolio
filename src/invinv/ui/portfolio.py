@@ -351,7 +351,8 @@ async def content() -> None:
                 if portfolio.cost:
                     kpi(
                         tr("Profit / loss"),
-                        f"{fmt_usd(portfolio.pnl)} ({portfolio.pnl / portfolio.cost:+.1%})",
+                        f"{'+' if portfolio.pnl > 0 else ''}{fmt_usd(portfolio.pnl)}"
+                        f" ({portfolio.pnl / portfolio.cost:+.1%})",
                         pct_color(portfolio.pnl),
                         tr("after fees, positions with a purchase price"),
                     )

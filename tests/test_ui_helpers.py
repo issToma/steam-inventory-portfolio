@@ -37,3 +37,11 @@ def test_nav_key_of_a_path() -> None:
     assert nav_key("/") == "portfolio"
     assert nav_key("/market?x=1") == "market"
     assert nav_key("/item/5") == ""
+
+
+def test_fmt_usd_puts_the_minus_before_the_dollar() -> None:
+    from invinv.ui.common import fmt_usd
+
+    assert fmt_usd(-10.784) == "-$10.78"
+    assert fmt_usd(1234.5) == "$1,234.50"
+    assert fmt_usd(None) == "—"

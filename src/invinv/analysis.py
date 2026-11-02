@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+import numpy as np
 import pandas as pd
 
 from invinv.core.currency import USD
@@ -164,16 +165,28 @@ MAX_ROBUST_POINTS = 30
 
 
 def robust_prices(series: pd.DataFrame) -> pd.Series:
-    """Every point's price as the median of the points that hold about its last 20 sales.
+    """Every point's price as the median of the points that hold its last 20 sales.
 
-    A liquid item has that many sales in one point, so its line stays as it is; for a rare
-    item with one sale per point the median runs over the last 20 points.
+    The window is counted in sales at each point: a busy day of a liquid item stands on its
+    own, while a day with a single sale (a quiet stretch, or today so far) reaches back to the
+    days before it, up to MAX_ROBUST_POINTS points.
     """
+    prices = series["price"].astype(float)
     if series.empty:
-        return series["price"].astype(float)
-    typical = float(series["volume"].median())
-    points = min(MAX_ROBUST_POINTS, max(1, math.ceil(ROBUST_SALES / max(typical, 1.0))))
-    return series["price"].rolling(points, min_periods=1).median()
+        return prices
+    sold = np.cumsum(series["volume"].to_numpy(dtype=float))
+    # The first point of each window: the latest one after which ROBUST_SALES sales remain.
+    first = np.searchsorted(sold, sold - ROBUST_SALES, side="right")
+    lengths = np.clip(np.arange(len(sold)) - first + 1, 1, MAX_ROBUST_POINTS)
+    # Odd lengths, so that the median is one of the prices rather than the mean of two: a
+    # quiet day next to a busy one must not land halfway between them.
+    lengths = lengths + (lengths % 2 == 0)
+    robust = np.empty(len(sold))
+    # One rolling median per window length: a handful of lengths, each a fast pandas pass.
+    for length in np.unique(lengths):
+        rolled = prices.rolling(int(length), min_periods=1).median().to_numpy()
+        robust[lengths == length] = rolled[lengths == length]
+    return pd.Series(robust, index=series.index, name="price")
 
 
 # Windows of the change columns (24h / 7d / 30d).

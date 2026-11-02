@@ -177,3 +177,14 @@ def test_hourly_points_are_smoothed_on_their_own_scale() -> None:
     robust = price_views(to_frame(points, {})).robust
 
     assert robust[START + timedelta(hours=3)] < 33
+
+
+def test_a_quiet_day_reaches_back_for_its_sales() -> None:
+    # Busy days at ~55, then today with a single sale at 45: today alone says nothing.
+    points = [point(START + timedelta(days=d), "55", volume=25) for d in range(10)]
+    points.append(point(START + timedelta(days=10), "45", volume=1))
+
+    robust = price_views(to_frame(points, {})).robust_daily
+
+    assert robust.iloc[-1] == 55
+    assert robust.iloc[-2] == 55

@@ -6,7 +6,10 @@ from invinv.i18n import tr, tr_n
 
 
 def fmt_usd(value: float | None) -> str:
-    return "—" if value is None else f"${value:,.2f}"
+    """$1,234.50; a negative amount as -$10.78."""
+    if value is None:
+        return "—"
+    return f"-${-value:,.2f}" if value < 0 else f"${value:,.2f}"
 
 
 def fmt_pct(value: float | None) -> str:
