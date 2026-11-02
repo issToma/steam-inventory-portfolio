@@ -26,7 +26,7 @@ InvInv (Investment Inventory) — сервис для отслеживания �
 
 ## Быстрый старт
 
-Нужен Docker с Compose.
+Нужен Docker Compose.
 
 ```bash
 cp .env.example .env    # затем задайте POSTGRES_PASSWORD, INVINV_DATABASE_URL и INVINV_UI_STORAGE_SECRET
