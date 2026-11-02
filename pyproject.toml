@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "InvInv (Investment Inventory): self-hosted tracker of what your Steam items are worth on the Steam Community Market"
 readme = "README.md"
 license = "MIT"
+authors = [{ name = "Valery" }]
 license-files = ["LICENSE"]
 requires-python = ">=3.14"
 dependencies = [
