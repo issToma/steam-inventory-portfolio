@@ -163,3 +163,21 @@ async def test_notifications_can_be_deleted_one_by_one_or_all(session: AsyncSess
     await repo.clear_alert_events(session)
     assert await repo.alert_events(session) == []
     assert await repo.get_alert(session, rule_id) is not None
+
+
+async def test_the_bot_token_is_stored_encrypted(session: AsyncSession) -> None:
+    await repo.save_telegram_token(session, "123:secret")
+
+    stored = await repo.get_setting(session, repo.SETTING_TELEGRAM_TOKEN)
+    assert stored is not None and "123:secret" not in stored
+    assert await repo.telegram_token(session) == "123:secret"
+
+
+async def test_a_plain_token_from_before_gets_encrypted(session: AsyncSession) -> None:
+    await repo.set_setting(session, repo.SETTING_TELEGRAM_TOKEN, "123:secret")
+
+    await repo.encrypt_stored_secrets(session)
+
+    stored = await repo.get_setting(session, repo.SETTING_TELEGRAM_TOKEN)
+    assert stored is not None and stored.startswith("enc:")
+    assert await repo.telegram_token(session) == "123:secret"

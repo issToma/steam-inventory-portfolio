@@ -17,7 +17,7 @@ from invinv.core.telegram import TelegramBot
 from invinv.db import repo
 from invinv.db.session import SessionMaker, make_engine, make_sessionmaker
 from invinv.portfolio import load_portfolio
-from invinv.settings import get_settings
+from invinv.settings import DEFAULT_SECRET, get_settings
 
 log = logging.getLogger(__name__)
 
@@ -74,6 +74,14 @@ class Runtime:
         settings = get_settings()
         self._engine = make_engine(settings.database_url)
         self._sessions = make_sessionmaker(self._engine)
+        if settings.ui_storage_secret == DEFAULT_SECRET:
+            log.warning(
+                "INVINV_UI_STORAGE_SECRET is still the default: set a long random value in .env "
+                "(it also encrypts the Telegram token)"
+            )
+        async with self._sessions() as session:
+            await repo.encrypt_stored_secrets(session)
+            await session.commit()
         self._http = aiohttp.ClientSession(
             headers={"User-Agent": settings.user_agent, "Accept-Language": "en-US,en;q=0.8"},
             timeout=aiohttp.ClientTimeout(total=60),

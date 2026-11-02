@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Steam started answering 429 after ~12 requests in ~4 minutes (2026-10-26 probe).
 # This floor is deliberately not configurable below this value.
 MIN_REQUEST_INTERVAL_SECONDS = 8.0
+DEFAULT_SECRET = "change-me"
 # The adaptive pace (opt-in) may go faster, since it slows down on its own after a 429.
 # Below 5 s Steam answered 429 within minutes (2026-10-29).
 MIN_ADAPTIVE_INTERVAL_SECONDS = 5.0
@@ -34,7 +35,9 @@ class Settings(BaseSettings):
     # A liquid, fairly expensive item, so that cent rounding barely affects the derived rate.
     fx_reference_item: str = "AK-47 | Redline (Field-Tested)"
 
-    ui_storage_secret: str = "change-me"
+    # Signs the browser's storage (theme, language, ...) and is the key that encrypts the
+    # Telegram token in the database: set your own, long and random, in .env.
+    ui_storage_secret: str = DEFAULT_SECRET
 
 
 @lru_cache

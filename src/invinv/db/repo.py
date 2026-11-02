@@ -1,6 +1,7 @@
 """Database access. Functions take a session and leave committing to the caller."""
 
 import json
+import logging
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -23,6 +24,8 @@ from invinv.core.parsers import (
     SteamProfile,
     parse_item_traits,
 )
+from invinv.core.secrets import PREFIX as SECRET_PREFIX
+from invinv.core.secrets import decrypt, encrypt
 from invinv.db.tables import (
     AlertEvent,
     AlertRule,
@@ -35,6 +38,9 @@ from invinv.db.tables import (
     PricePoint,
     WatchlistEntry,
 )
+from invinv.settings import get_settings
+
+log = logging.getLogger(__name__)
 
 JOB_RESOLVE = "resolve"
 JOB_HISTORY = "history"
@@ -1158,6 +1164,30 @@ async def set_telegram_status(session: AsyncSession, event_id: int, status: str)
     )
 
 
+async def telegram_token(session: AsyncSession) -> str | None:
+    """The bot token, decrypted; None when not set or when it cannot be decrypted."""
+    stored = await get_setting(session, SETTING_TELEGRAM_TOKEN)
+    if not stored:
+        return None
+    token = decrypt(stored, get_settings().ui_storage_secret)
+    if token is None:
+        log.warning("the Telegram token cannot be decrypted (was the storage secret changed?)")
+    return token
+
+
+async def save_telegram_token(session: AsyncSession, token: str | None) -> None:
+    """Store the bot token encrypted (core.secrets), or remove it."""
+    value = encrypt(token, get_settings().ui_storage_secret) if token else None
+    await set_setting(session, SETTING_TELEGRAM_TOKEN, value)
+
+
+async def encrypt_stored_secrets(session: AsyncSession) -> None:
+    """Encrypt a bot token saved before tokens were encrypted."""
+    stored = await get_setting(session, SETTING_TELEGRAM_TOKEN)
+    if stored and not stored.startswith(SECRET_PREFIX):
+        await save_telegram_token(session, stored)
+
+
 @dataclass(frozen=True)
 class TelegramSettings:
     token: str
@@ -1167,7 +1197,7 @@ class TelegramSettings:
 
 async def telegram_settings(session: AsyncSession) -> TelegramSettings | None:
     """Where to send alerts, or None while Telegram is not fully set up."""
-    token = await get_setting(session, SETTING_TELEGRAM_TOKEN)
+    token = await telegram_token(session)
     chat_id = await get_setting(session, SETTING_TELEGRAM_CHAT)
     if not token or not chat_id:
         return None

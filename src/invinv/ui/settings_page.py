@@ -143,7 +143,7 @@ async def _telegram_card() -> None:
 
     async def render() -> None:
         async with runtime.sessions() as session:
-            token = await repo.get_setting(session, repo.SETTING_TELEGRAM_TOKEN)
+            token = await repo.telegram_token(session)
             chat = await repo.get_setting(session, repo.SETTING_TELEGRAM_CHAT)
             language = await repo.get_setting(session, repo.SETTING_TELEGRAM_LANGUAGE)
         card.clear()
@@ -200,7 +200,7 @@ async def _telegram_card() -> None:
             ui.notify(tr("Telegram did not accept the token: {error}", error=exc), type="negative")
             return
         async with runtime.sessions() as session:
-            await repo.set_setting(session, repo.SETTING_TELEGRAM_TOKEN, token)
+            await repo.save_telegram_token(session, token)
             await repo.set_setting(session, repo.SETTING_TELEGRAM_CHAT, None)
             await session.commit()
         ui.notify(tr("Connected to @{bot}. Now send it any message.", bot=name), multi_line=True)
@@ -208,7 +208,7 @@ async def _telegram_card() -> None:
 
     async def find_chat() -> None:
         async with runtime.sessions() as session:
-            token = await repo.get_setting(session, repo.SETTING_TELEGRAM_TOKEN)
+            token = await repo.telegram_token(session)
         if not token:
             return
         try:
@@ -252,7 +252,7 @@ async def _telegram_card() -> None:
 
     async def disconnect() -> None:
         async with runtime.sessions() as session:
-            await repo.set_setting(session, repo.SETTING_TELEGRAM_TOKEN, None)
+            await repo.save_telegram_token(session, None)
             await repo.set_setting(session, repo.SETTING_TELEGRAM_CHAT, None)
             await session.commit()
         ui.notify(tr("Telegram disconnected"))
