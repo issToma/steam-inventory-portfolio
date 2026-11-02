@@ -1,7 +1,7 @@
 [project]
 name = "invinv"
 version = "0.1.0"
-description = "InvInv (Investment Inventory): self-hosted tracker of what your Steam items are worth on the Steam Community Market"
+description = "Steam inventory portfolio tracker with Telegram price alerts: value over time, profit and loss and price charts for CS2, Dota 2 and other game items, from Steam Community Market prices. Self-hosted."
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Valery" }]
@@ -22,8 +22,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/issToma/invinv"
-Issues = "https://github.com/issToma/invinv/issues"
+Homepage = "https://github.com/issToma/steam-inventory-portfolio"
+Issues = "https://github.com/issToma/steam-inventory-portfolio/issues"
 
 [project.scripts]
 invinv = "invinv.main:run"
