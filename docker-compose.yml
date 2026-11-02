@@ -18,6 +18,8 @@ services:
 
   app:
     build: .
+    # A fixed name, so that an image built by hand (see the README) is the one compose runs.
+    image: invinv
     env_file: .env
     environment:
       INVINV_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-invinv}:${POSTGRES_PASSWORD:-invinv}@postgres:5432/${POSTGRES_DB:-invinv}
