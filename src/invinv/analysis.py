@@ -35,7 +35,7 @@ def to_frame(
     """Columns: ts (UTC), resolution, price (USD), volume.
 
     Every stored price was converted by Steam at the time of the last fetch, so all of them
-    are converted back with the latest Steam rate (docs/SPEC.md, section 4.2). Outliers
+    are converted back with the latest Steam rate. Outliers
     (see remove_outliers) are dropped unless asked otherwise.
     """
     rates: dict[int, float] = {USD: 1.0}

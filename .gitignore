@@ -24,3 +24,6 @@ raw_responses/
 
 # NiceGUI per-browser storage (theme, language, choices)
 .nicegui/
+
+# Internal specification, kept locally
+docs/SPEC.md

@@ -44,7 +44,7 @@ log = logging.getLogger(__name__)
 
 JOB_RESOLVE = "resolve"
 JOB_HISTORY = "history"
-# One market group page holds the history of every variant in the group (docs/SPEC.md, S6).
+# One market group page holds the history of every variant in the group.
 JOB_GROUP = "group"
 JOB_INVENTORY = "inventory"
 JOB_FX = "fx"
@@ -1010,7 +1010,7 @@ async def set_game_enabled(session: AsyncSession, appid: int, enabled: bool) -> 
     await set_setting(session, SETTING_DISABLED_GAMES, json.dumps(sorted(disabled)))
 
 
-# Alerts (docs/SPEC.md, F11).
+# Alerts.
 TELEGRAM_OFF = "off"
 TELEGRAM_PENDING = "pending"
 TELEGRAM_SENT = "sent"

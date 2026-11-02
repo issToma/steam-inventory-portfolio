@@ -1,4 +1,4 @@
-"""Typed access to the Steam Community Market endpoints we use (see docs/SPEC.md, section 2)."""
+"""Typed access to the Steam Community Market endpoints we use."""
 
 import json
 from datetime import UTC, datetime

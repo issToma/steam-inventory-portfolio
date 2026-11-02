@@ -1,4 +1,4 @@
-"""How often to refresh an item's current price, and in which order to fetch (SPEC F17).
+"""How often to refresh an item's current price, and in which order to fetch.
 
 Requests are scarce, so a big inventory cannot refresh everything every hour. Items the user
 watches, valuable positions and anything we cannot value yet refresh at the base interval;

@@ -1,4 +1,4 @@
-"""The Market page's data (docs/SPEC.md, F8 and F9): every tracked item with its current
+"""The Market page's data: every tracked item with its current
 price and changes, and price indices of item segments (game and rarity).
 
 Only items whose prices are collected count: the portfolio's and the watchlist's. A crawl of

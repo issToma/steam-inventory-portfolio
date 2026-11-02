@@ -1,4 +1,4 @@
-"""An item's current price (docs/SPEC.md, F18): the cheapest listing on the market right now.
+"""An item's current price: the cheapest listing on the market right now.
 
 Steam's own inventory shows the same "Starting at" price. It comes from priceoverview, a
 separate request per item, refreshed by the item's importance. When the item has no

@@ -1,4 +1,4 @@
-"""Price alerts (docs/SPEC.md, F11): rules checked after every price refresh.
+"""Price alerts: rules checked after every price refresh.
 
 A rule watches an item's latest price (with odd single sales filtered out, like the metrics)
 or its change over 24 hours or 7 days. It fires when its condition starts to hold, then waits
