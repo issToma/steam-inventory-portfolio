@@ -335,3 +335,17 @@ def test_order_book_rejects_odd_levels() -> None:
 
     with pytest.raises(SteamFormatError):
         parse_order_book(payload)
+
+
+@pytest.mark.parametrize(
+    "text", ["https://steamcommunity.com/id/../market/", "steamcommunity.com/id/a b%2F/"]
+)
+def test_odd_custom_urls_are_refused(text: str) -> None:
+    with pytest.raises(ValueError):
+        parse_profile_input(text)
+
+
+def test_profile_xml_with_a_document_type_is_refused() -> None:
+    xml = '<?xml version="1.0"?><!DOCTYPE p [<!ENTITY a "x">]><profile>&a;</profile>'
+    with pytest.raises(SteamFormatError):
+        parse_profile_xml(xml)

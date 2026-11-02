@@ -431,6 +431,7 @@ class ProfileRef:
 
 
 _STEAM_ID64 = re.compile(r"7656119\d{10}")
+_VANITY = re.compile(r"[A-Za-z0-9_-]{2,32}")
 
 
 def parse_profile_input(text: str) -> ProfileRef:
@@ -446,6 +447,9 @@ def parse_profile_input(text: str) -> ProfileRef:
                 if not _STEAM_ID64.fullmatch(value):
                     break
                 return ProfileRef(steam_id64=value)
+            # Steam's custom URLs; anything else must not reach the request path.
+            if not _VANITY.fullmatch(value):
+                break
             return ProfileRef(vanity=value)
     raise ValueError("expected a SteamID64 or a steamcommunity.com profile link")
 
@@ -463,6 +467,9 @@ class SteamProfile:
 def parse_profile_xml(xml: str) -> SteamProfile:
     """Parse /profiles/<id>/?xml=1 or /id/<name>/?xml=1 (served without logging in)."""
     source = "profile xml"
+    # A profile never has a document type; refusing one rules out entity-expansion attacks.
+    if "<!DOCTYPE" in xml or "<!ENTITY" in xml:
+        raise SteamFormatError(f"{source}: unexpected document type")
     try:
         root = ElementTree.fromstring(xml)
     except ElementTree.ParseError as exc:
