@@ -21,6 +21,10 @@ dependencies = [
     "uvicorn[standard]>=0.54.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/issToma/invinv"
+Issues = "https://github.com/issToma/invinv/issues"
+
 [project.scripts]
 invinv = "invinv.main:run"
 
