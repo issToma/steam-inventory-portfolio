@@ -183,3 +183,15 @@ def test_an_excluded_position_leaves_the_chart_but_not_the_value() -> None:
     assert portfolio.newest_item == "item 1"
     assert portfolio.chart_excluded == 1
     assert portfolio.value == 15
+
+
+def test_value_history_ends_at_todays_value_from_listings() -> None:
+    now = DAY + timedelta(days=3, hours=12)
+    sold = position(1, [10, 10, 10, 10], quantity=2)
+    # Sales say 10, the cheapest listing says 12: the chart ends where the value stands.
+    listed = PositionInput(**{**sold.__dict__, "listing": Listing(Decimal("12"), None, None, now)})
+
+    portfolio = value_positions([listed], now=now)
+
+    assert portfolio.value == 24
+    assert list(portfolio.value_history) == [20, 20, 20, 24]

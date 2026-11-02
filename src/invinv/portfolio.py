@@ -240,11 +240,33 @@ def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None
         cost=sum(pos.cost for pos in with_pnl if pos.cost is not None),
         pnl=sum(pos.pnl for pos in with_pnl if pos.pnl is not None),
         unpriced=sum(1 for pos in positions if pos.price is None),
-        value_history=value_history(inputs, dailies),
+        value_history=_ending_now(
+            value_history(inputs, dailies),
+            sum(pos.value or 0 for pos in positions if not pos.chart_excluded),
+            now,
+        ),
         newest_item=newest[1] if newest else None,
         newest_holding_id=newest[0] if newest else None,
         chart_excluded=sum(1 for p in inputs if p.chart_excluded),
     )
+
+
+# How recent a value history's last day must be for today's value to end it.
+CURRENT_HISTORY = timedelta(days=3)
+
+
+def _ending_now(history: pd.Series, value: float, now: datetime) -> pd.Series:
+    """The value history with today at the portfolio's value now (current prices), so that
+    the chart and the period's change end where the headline figure stands; the history
+    itself comes from sales, which lag behind the listings."""
+    today = pd.Timestamp(now).tz_convert(UTC).normalize()
+    # Only a history that reaches the last days: an old one is not "now" in any sense.
+    if history.empty or not value or history.index[-1] < today - CURRENT_HISTORY:
+        return history
+    ended: pd.Series = pd.concat(
+        [history[history.index < today], pd.Series([value], index=pd.DatetimeIndex([today]))]
+    )
+    return ended
 
 
 def _newest_item(
