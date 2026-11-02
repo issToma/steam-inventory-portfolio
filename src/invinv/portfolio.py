@@ -104,11 +104,11 @@ class ItemPrices:
     sales_price: float | None  # pricing.recent_sales_price(), when nothing is listed
 
 
-def item_prices(history: pd.DataFrame, publisher_fee: float = PUBLISHER_FEE_RATE) -> ItemPrices:
+def item_prices(history: pd.DataFrame) -> ItemPrices:
     views = price_views(history) if not history.empty else None
     return ItemPrices(
         sales_price=recent_sales_price(views) if views else None,
-        metrics=compute_metrics(history, views, publisher_fee),
+        metrics=compute_metrics(history, views),
         daily=views.robust_daily if views else None,
         robust=views.robust if views else None,
         trend=tuple(recent_trend(history, views=views)),
@@ -131,7 +131,6 @@ class Position:
     share: float | None
     change_24h: float | None
     change_7d: float | None
-    change_30d: float | None
     icon_url: str | None = None
     rarity: str | None = None
     quality: str | None = None
@@ -171,7 +170,7 @@ def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None
     rows = []
     dailies: dict[int, pd.Series] = {}
     for p in inputs:
-        computed = p.prices or item_prices(p.history, p.publisher_fee)
+        computed = p.prices or item_prices(p.history)
         if computed.daily is not None:
             dailies[p.holding_id] = computed.daily
         metrics = computed.metrics
@@ -216,7 +215,6 @@ def value_positions(inputs: Sequence[PositionInput], now: datetime | None = None
             share=value / total if value is not None and total else None,
             change_24h=changes["24h"],
             change_7d=changes["7d"],
-            change_30d=changes["30d"],
             icon_url=p.icon_url,
             rarity=p.rarity,
             quality=p.quality,
@@ -363,7 +361,7 @@ def _empty_portfolio() -> Portfolio:
     return value_positions([])
 
 
-# Computed prices per item, with the (history stamp, rates, fee) they were computed from.
+# Computed prices per item, with the (history stamp, rates) they were computed from.
 # While a big inventory loads, one item's history changes at a time; only that item is
 # computed again.
 _item_cache: dict[int, tuple[tuple[object, ...], ItemPrices]] = {}
@@ -375,21 +373,20 @@ _BATCH = 25
 async def cached_item_prices(
     sessions: SessionMaker, items: Sequence[Item]
 ) -> dict[int, ItemPrices]:
-    """ItemPrices of the items, computed again only for those whose history, the rates or
-    the fee changed since."""
+    """ItemPrices of the items, computed again only for those whose history or the rates
+    changed since."""
     async with sessions() as session:
         fx = await repo.latest_fx(session)
         item_ids = list({item.id for item in items})
         stamps = await repo.history_stamps(session, item_ids)
-    fees = {item.id: fee_rate(item) for item in items}
     rates = tuple(sorted(fx.items()))
-    keys = {item_id: (stamps.get(item_id), rates, fees[item_id]) for item_id in item_ids}
+    keys = {item_id: (stamps.get(item_id), rates) for item_id in item_ids}
     stale = [i for i in item_ids if i not in _item_cache or _item_cache[i][0] != keys[i]]
     for batch in batched(stale, _BATCH, strict=False):
         async with sessions() as session:
             points = await repo.load_histories(session, list(batch))
         # pandas work runs in a thread so that the UI stays responsive meanwhile.
-        computed = await asyncio.to_thread(_compute_items, points, fx, fees)
+        computed = await asyncio.to_thread(_compute_items, points, fx)
         for item_id, prices in computed.items():
             _item_cache[item_id] = (keys[item_id], prices)
     return {item_id: _item_cache[item_id][1] for item_id in item_ids}
@@ -436,12 +433,8 @@ def _value_by_game(inputs: Sequence[PositionInput]) -> dict[int | None, Portfoli
 def _compute_items(
     points: Mapping[int, Sequence[repo.StoredPoint]],
     fx: Mapping[int, Decimal],
-    fees: Mapping[int, float],
 ) -> dict[int, ItemPrices]:
-    return {
-        item_id: item_prices(_frame_or_empty(rows, fx), fees[item_id])
-        for item_id, rows in points.items()
-    }
+    return {item_id: item_prices(_frame_or_empty(rows, fx)) for item_id, rows in points.items()}
 
 
 _EMPTY = to_frame([], {})

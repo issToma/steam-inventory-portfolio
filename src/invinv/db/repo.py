@@ -1004,17 +1004,6 @@ async def set_game_enabled(session: AsyncSession, appid: int, enabled: bool) -> 
     await set_setting(session, SETTING_DISABLED_GAMES, json.dumps(sorted(disabled)))
 
 
-async def games_in_use(session: AsyncSession) -> list[int]:
-    """Games of the tracked items (portfolio or watchlist), most items first."""
-    result = await session.execute(
-        select(Item.appid, func.count())
-        .where(_tracked_condition())
-        .group_by(Item.appid)
-        .order_by(func.count().desc())
-    )
-    return [appid for appid, _ in result]
-
-
 # Alerts (docs/SPEC.md, F11).
 TELEGRAM_OFF = "off"
 TELEGRAM_PENDING = "pending"

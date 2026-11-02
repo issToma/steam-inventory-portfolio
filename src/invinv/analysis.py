@@ -9,7 +9,6 @@ from decimal import Decimal
 import pandas as pd
 
 from invinv.core.currency import USD
-from invinv.core.fees import PUBLISHER_FEE_RATE, seller_proceeds
 from invinv.db.repo import StoredPoint
 
 
@@ -23,14 +22,10 @@ class MissingRateError(Exception):
 
 @dataclass(frozen=True)
 class Metrics:
-    last_price: float
+    last_price: float  # of the last sale; the current price is pricing.quote()
     last_ts: pd.Timestamp
-    change_24h: float | None
-    change_7d: float | None
-    change_30d: float | None
     volatility_30d: float | None
     avg_daily_volume_30d: float | None
-    proceeds_after_fee: float
 
 
 def to_frame(
@@ -129,13 +124,6 @@ def _daily_weighted_median(hourly: pd.DataFrame) -> pd.Series:
     median = points[reached].groupby("day")["price"].first()
     median.index = pd.DatetimeIndex(median.index)
     return median
-
-
-def _change(series: pd.Series, last_ts: pd.Timestamp, period: timedelta) -> float | None:
-    before = series[: last_ts - period]
-    if before.empty or before.iloc[-1] == 0:
-        return None
-    return float(series.iloc[-1] / before.iloc[-1] - 1)
 
 
 @dataclass(frozen=True)
@@ -244,11 +232,7 @@ def change_since(
     return price / then - 1 if then else None
 
 
-def compute_metrics(
-    frame: pd.DataFrame,
-    views: PriceViews | None = None,
-    publisher_fee: float = PUBLISHER_FEE_RATE,
-) -> Metrics | None:
+def compute_metrics(frame: pd.DataFrame, views: PriceViews | None = None) -> Metrics | None:
     if frame.empty:
         return None
     views = views or price_views(frame)
@@ -263,12 +247,8 @@ def compute_metrics(
     return Metrics(
         last_price=last_price,
         last_ts=last_ts,
-        change_24h=_change(recent, last_ts, timedelta(hours=24)),
-        change_7d=_change(recent, last_ts, timedelta(days=7)),
-        change_30d=_change(daily["price"], daily.index[-1], timedelta(days=30)),
         volatility_30d=float(returns.std()) if len(returns) > 1 else None,
         avg_daily_volume_30d=float(month["volume"].mean()) if not month.empty else None,
-        proceeds_after_fee=seller_proceeds(round(last_price * 100), publisher_fee) / 100,
     )
 
 

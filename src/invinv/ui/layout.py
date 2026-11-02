@@ -68,7 +68,6 @@ a.plain-link:has(.nav-item):hover { text-decoration: none; }
 .nav-bottom { border-top: 1px solid var(--border); padding-top: 8px; }
 .nav-item.disabled { color: var(--muted); opacity: .6; }
 .text-muted { color: var(--muted) !important; }
-.period-card { border-color: var(--q-primary) !important; }
 /* The headline figure, its change and the strip of smaller figures under it. */
 .hero-value { font-size: 2.6rem; font-weight: 650; letter-spacing: -0.025em; line-height: 1.1; }
 .delta-pill { border-radius: 999px; padding: 4px 12px; font-weight: 600; font-size: 0.95rem; }

@@ -345,7 +345,7 @@ async def content(item_id: int) -> None:
             return
         frame = remove_outliers(raw_frame)
         fee = fee_rate(item)
-        metrics = compute_metrics(frame, publisher_fee=fee)
+        metrics = compute_metrics(frame)
         if metrics is None:
             ui.label(
                 tr(

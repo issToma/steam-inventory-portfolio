@@ -31,10 +31,7 @@ KIND_ABOVE = "above"
 KIND_BELOW = "below"
 KIND_RISE = "rise"
 KIND_FALL = "fall"
-PRICE_KINDS = (KIND_ABOVE, KIND_BELOW)
 CHANGE_KINDS = (KIND_RISE, KIND_FALL)
-# Windows for rise and fall rules, in hours.
-WINDOWS = (24, 168)
 
 COOLDOWN = timedelta(hours=6)
 # A Telegram message that still cannot be sent after this long is given up.

@@ -67,10 +67,8 @@ def test_metrics() -> None:
 
     assert metrics is not None
     assert metrics.last_price == 41
-    assert metrics.change_24h == 0
-    assert metrics.change_7d == pytest.approx(41 / 35 - 1)
-    assert metrics.change_30d == pytest.approx(41 / 12 - 1)
-    assert metrics.proceeds_after_fee == pytest.approx(35.66)
+    assert metrics.last_ts == START + timedelta(days=31, hours=24)
+    assert metrics.avg_daily_volume_30d is not None
 
 
 def test_metrics_of_empty_history() -> None:
